@@ -1,5 +1,6 @@
 package gg.vape.module.combat;
 
+import gg.vape.Vape;
 import gg.vape.event.Event;
 import gg.vape.event.EventHandler;
 import gg.vape.event.EventPriority;
@@ -14,6 +15,7 @@ import gg.vape.module.Mod;
 import gg.vape.module.control.SharedModuleControlClaims;
 import gg.vape.module.utility.clutch.ClutchPlacementPathUtils;
 import gg.vape.module.utility.clutch.PlacementTarget;
+import gg.vape.notification.NotificationType;
 import gg.vape.rotation.AdaptiveRotationController;
 import gg.vape.rotation.FixedRotationController;
 import gg.vape.rotation.RotationControlClaim;
@@ -327,6 +329,8 @@ public class ShieldBreaker extends Mod {
         }
         this.cobwebSlot = this.findHotbarSlot(inventory, "cobweb");
         if (this.cobwebSlot < 0) {
+            Vape.INSTANCE.getNotificationManager().show("ShieldBreaker", "Cobweb not in hotbar",
+                    NotificationType.WARNING, 3000L);
             return false;
         }
         int targetX = MathUtil.floor(this.webTarget.z());
