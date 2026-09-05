@@ -38,7 +38,7 @@ public class HeadWeb
 extends UtilityMod {
     private static final int STATE_PREPARE_SPRINT = 0;
     private static final int STATE_ATTACK = 1;
-    private static final int STATE_TRACK_PEAK = 2;
+    private static final int STATE_WAIT = 2;
     private static final int STATE_PLACE = 3;
 
     private final BooleanValue silentAim = BooleanValue.create(this, "Silent aim", true,
@@ -47,6 +47,8 @@ extends UtilityMod {
             "Speed of the aim when placing the web");
     private final NumberValue sprintDelay = NumberValue.create(this, "Sprint delay", "#", "ticks", 0.0, 3.0, 10.0, 1.0,
             "How long to force sprint before attacking");
+    private final NumberValue webDelay = NumberValue.create(this, "Web delay", "#", "ticks", 0.0, 7.0, 30.0, 1.0,
+            "How long to wait after the sprint hit before placing the web");
     private final BooleanValue antiSuicide = BooleanValue.create(this, "Anti suicide", false,
             "Doesn't place a web when it would be placed in your own block");
 
@@ -58,9 +60,6 @@ extends UtilityMod {
     private int cobwebSlot = -1;
     private boolean releasePending;
     private EntityOtherPlayerMP target;
-    private boolean risen;
-    private double attackStartY;
-    private double peakMaxY;
     private int placeX;
     private int placeY;
     private int placeZ;
@@ -73,8 +72,8 @@ extends UtilityMod {
 
     public HeadWeb() {
         super("HeadWeb", Category.COMBAT,
-                "Sprint hits a target against a wall and places a web at their peak height");
-        this.addValue(this.silentAim, this.aimSpeed, this.sprintDelay, this.antiSuicide);
+                "Sprint hits a target and places a web one block above their head");
+        this.addValue(this.silentAim, this.aimSpeed, this.sprintDelay, this.webDelay, this.antiSuicide);
         this.rotationClaim.setPriority(this, 6);
     }
 
@@ -131,8 +130,8 @@ extends UtilityMod {
                 this.tickAttack(player);
                 break;
             }
-            case STATE_TRACK_PEAK: {
-                this.tickTrackPeak();
+            case STATE_WAIT: {
+                this.tickWait();
                 break;
             }
             case STATE_PLACE: {
@@ -152,36 +151,23 @@ extends UtilityMod {
     }
 
     private void tickAttack(EntityPlayerSP player) {
-        this.attackStartY = this.target.N();
-        this.peakMaxY = this.target.N();
-        this.risen = false;
+        this.placeX = MathUtil.floor(this.target.z());
+        this.placeY = MathUtil.floor(this.target.N()) + 2;
+        this.placeZ = MathUtil.floor(this.target.h());
         this.releasePending = AttackKeyController.requestSyntheticAttack(this);
+        this.releaseForcedKeys(player);
         this.ticks = 0;
-        this.state = STATE_TRACK_PEAK;
+        this.state = STATE_WAIT;
     }
 
-    private void tickTrackPeak() {
+    private void tickWait() {
         if (this.target == null || this.target.isNull()) {
             this.finish();
             return;
         }
-        double currentY = this.target.N();
-        if (!this.risen && currentY > this.attackStartY + 0.08) {
-            this.risen = true;
-        }
-        if (this.risen && currentY > this.peakMaxY) {
-            this.peakMaxY = currentY;
-        }
-        if (this.risen && currentY < this.peakMaxY - 0.08) {
-            this.placeX = MathUtil.floor(this.target.z());
-            this.placeY = MathUtil.floor(this.peakMaxY);
-            this.placeZ = MathUtil.floor(this.target.h());
+        if (++this.ticks >= this.webDelay.getValue().intValue()) {
             this.ticks = 0;
             this.state = STATE_PLACE;
-            return;
-        }
-        if (++this.ticks > 60) {
-            this.finish();
         }
     }
 
@@ -383,6 +369,20 @@ extends UtilityMod {
         return false;
     }
 
+    private void releaseForcedKeys(EntityPlayerSP player) {
+        if (player == null || player.isNull()) {
+            return;
+        }
+        KeyBinding forwardKey = Minecraft.gameSettings().Y();
+        if (!ClientSettings.isPhysicalKeyDown(forwardKey)) {
+            KeyBinding.setKeyBindState(forwardKey, false);
+        }
+        KeyBinding sprintKey = Minecraft.gameSettings().r();
+        if (!ClientSettings.isPhysicalKeyDown(sprintKey)) {
+            KeyBinding.setKeyBindState(sprintKey, false);
+        }
+    }
+
     private void finish() {
         if (this.releasePending) {
             AttackKeyController.releaseAttackKey();
@@ -390,14 +390,7 @@ extends UtilityMod {
         }
         EntityPlayerSP player = Minecraft.thePlayer();
         if (player.isNotNull() && Minecraft.currentScreen().isNull()) {
-            KeyBinding forwardKey = Minecraft.gameSettings().Y();
-            if (!ClientSettings.isPhysicalKeyDown(forwardKey)) {
-                KeyBinding.setKeyBindState(forwardKey, false);
-            }
-            KeyBinding sprintKey = Minecraft.gameSettings().r();
-            if (!ClientSettings.isPhysicalKeyDown(sprintKey)) {
-                KeyBinding.setKeyBindState(sprintKey, false);
-            }
+            this.releaseForcedKeys(player);
             if (this.originalSlot >= 0) {
                 player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.originalSlot);
             }
@@ -424,14 +417,7 @@ extends UtilityMod {
         }
         EntityPlayerSP player = Minecraft.thePlayer();
         if (player.isNotNull()) {
-            KeyBinding forwardKey = Minecraft.gameSettings().Y();
-            if (!ClientSettings.isPhysicalKeyDown(forwardKey)) {
-                KeyBinding.setKeyBindState(forwardKey, false);
-            }
-            KeyBinding sprintKey = Minecraft.gameSettings().r();
-            if (!ClientSettings.isPhysicalKeyDown(sprintKey)) {
-                KeyBinding.setKeyBindState(sprintKey, false);
-            }
+            this.releaseForcedKeys(player);
             if (this.originalSlot >= 0) {
                 player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.originalSlot);
             }
