@@ -14,8 +14,8 @@ import gg.vape.module.Mod;
 import gg.vape.module.control.SharedModuleControlClaims;
 import gg.vape.module.utility.clutch.ClutchPlacementPathUtils;
 import gg.vape.module.utility.clutch.PlacementTarget;
+import gg.vape.rotation.AdaptiveRotationController;
 import gg.vape.rotation.FixedRotationController;
-import gg.vape.rotation.PointRotationController;
 import gg.vape.rotation.RotationControlClaim;
 import gg.vape.rotation.RotationManager;
 import gg.vape.unmap.ItemLimitData;
@@ -287,14 +287,14 @@ public class ShieldBreaker extends Mod {
             return;
         }
         if (this.webRotationController == null || !this.webRotationController.isComplete()) {
-            if (++this.webTicks > 70) {
+            if (++this.webTicks > 50) {
                 this.restoreSlot(player);
                 this.reset(player, false);
             }
             return;
         }
         if (!this.isWebRayTraceValid()) {
-            if (++this.webTicks > 30) {
+            if (++this.webTicks > 10) {
                 this.restoreSlot(player);
                 this.reset(player, false);
             }
@@ -368,8 +368,8 @@ public class ShieldBreaker extends Mod {
             return false;
         }
         if (this.webRotationController == null) {
-            PointRotationController controller = new PointRotationController(this.webAimPoint);
-            controller.setNormalizeYaw(false);
+            AdaptiveRotationController controller = new AdaptiveRotationController(this.webAimPoint);
+            controller.setNormalizeTargetYaw(false);
             controller.setRetainAfterCompletion(true);
             controller.setClampStepToRemaining(true);
             controller.setTolerance(0.1f);
@@ -377,11 +377,12 @@ public class ShieldBreaker extends Mod {
             controller.setScaleAxesProportionally(true);
             controller.setLinearAcceleration(true);
             controller.setCubicAcceleration(true);
+            controller.setRelativeMode(false);
             controller.setSpeed(((Double)this.webAimSpeed.getValue()).floatValue());
             this.webRotationController = controller;
         }
-        if (this.webRotationController instanceof PointRotationController) {
-            ((PointRotationController)this.webRotationController).setTarget(this.webAimPoint);
+        if (this.webRotationController instanceof AdaptiveRotationController) {
+            ((AdaptiveRotationController)this.webRotationController).setTarget(this.webAimPoint);
         }
         this.webRotationController.setSpeed(((Double)this.webAimSpeed.getValue()).floatValue());
         if (!this.webRotationController.equals(RotationManager.INSTANCE.getActiveController())) {
