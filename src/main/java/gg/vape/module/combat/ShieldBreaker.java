@@ -258,7 +258,9 @@ public class ShieldBreaker extends Mod {
     }
 
     private void beginWebPlacement() {
-        this.placingWeb = this.stunWeb.getEffectiveValue().booleanValue();
+        boolean shieldStillRaised = this.webTarget != null && this.webTarget.isNotNull()
+                && RotationUtil.n(this.webTarget);
+        this.placingWeb = this.stunWeb.getEffectiveValue().booleanValue() && shieldStillRaised;
         this.webPlacementStarted = false;
         this.webClicked = false;
         this.webTicks = 0;
@@ -338,6 +340,10 @@ public class ShieldBreaker extends Mod {
         int targetZ = MathUtil.floor(this.webTarget.h());
         Block targetBlock = world.getBlockByPos(targetX, targetY, targetZ);
         if (targetBlock.isNull() || !BlockUtil.u(targetBlock)) {
+            return false;
+        }
+        String targetBlockName = targetBlock.U();
+        if (targetBlockName != null && targetBlockName.toLowerCase().contains("web")) {
             return false;
         }
         Vec3 eyePosition = Vec3.create(player.z(), player.N() + (double)player.X(), player.h());
