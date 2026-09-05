@@ -51,6 +51,7 @@ public class ShieldBreaker extends Mod {
     private final BooleanValue doubleClick;
     private final BooleanValue stunWeb;
     private final NumberValue webAimSpeed;
+    private final BooleanValue webAntiSuicide;
     private final BooleanValue limitToItems;
     private final LimitValue allowedItems;
     private final RotationControlClaim rotationClaim = SharedModuleControlClaims.rotation;
@@ -66,6 +67,7 @@ public class ShieldBreaker extends Mod {
     private int swapTicks;
     private int restoreTicks;
     private int webTicks;
+    private int webVerifyTicks;
     private int cobwebSlot = -1;
     private EntityOtherPlayerMP webTarget;
     private BlockData webSupportBlock;
@@ -86,6 +88,8 @@ public class ShieldBreaker extends Mod {
                 "Places a cobweb under the target after breaking their shield");
         this.webAimSpeed = NumberValue.create(this, "Web aim speed", "#.#", "", 0.5, 4.0, 10.0, 0.1,
                 "Speed of the aim when placing the cobweb");
+        this.webAntiSuicide = BooleanValue.create(this, "Anti suicide", false,
+                "Doesn't place a web when it would be placed in your own block");
         this.limitToItems = BooleanValue.create(this, "Limit to items", false,
                 "ShieldBreaker functions only while holding selected items");
         this.allowedItems = LimitValue.create(this, "shieldbreaker-alloweditems", "Allowed Items",
@@ -93,8 +97,8 @@ public class ShieldBreaker extends Mod {
         this.swapDelay.setMaximumFractionDigits(0);
         this.swapBackDelay.setMaximumFractionDigits(0);
         this.limitToItems.addDependentValues(this.allowedItems);
-        this.stunWeb.addDependentValues(this.webAimSpeed);
-        this.addValue(this.swapDelay, this.swapBackDelay, this.doubleClick, this.stunWeb, this.webAimSpeed, this.limitToItems, this.allowedItems);
+        this.stunWeb.addDependentValues(this.webAimSpeed, this.webAntiSuicide);
+        this.addValue(this.swapDelay, this.swapBackDelay, this.doubleClick, this.stunWeb, this.webAimSpeed, this.webAntiSuicide, this.limitToItems, this.allowedItems);
         this.rotationClaim.setPriority(this, 7);
     }
 
@@ -191,11 +195,6 @@ public class ShieldBreaker extends Mod {
         this.waitingToAttack = true;
         this.swapTicks = 0;
         this.restoreTicks = 0;
-        if (this.swapDelay.getValue().intValue() == 0) {
-            this.attack();
-            this.waitingToAttack = false;
-            this.beginWebPlacement();
-        }
     }
 
     private void attack() {
@@ -264,6 +263,7 @@ public class ShieldBreaker extends Mod {
         this.webPlacementStarted = false;
         this.webClicked = false;
         this.webTicks = 0;
+        this.webVerifyTicks = 0;
         this.webRotationController = null;
         this.cobwebSlot = -1;
         this.webSupportBlock = null;
@@ -273,6 +273,16 @@ public class ShieldBreaker extends Mod {
 
     private void tickWebPlacement(EntityPlayerSP player) {
         if (Minecraft.currentScreen().isNotNull() || player.isNull()) {
+            this.restoreSlot(player);
+            this.reset(player, false);
+            return;
+        }
+        if (this.webVerifyTicks < 4) {
+            if (++this.webVerifyTicks < 4) {
+                return;
+            }
+        }
+        if (this.webTarget != null && this.webTarget.isNotNull() && RotationUtil.n(this.webTarget)) {
             this.restoreSlot(player);
             this.reset(player, false);
             return;
@@ -338,6 +348,14 @@ public class ShieldBreaker extends Mod {
         int targetX = MathUtil.floor(this.webTarget.z());
         int targetY = MathUtil.floor(this.webTarget.N());
         int targetZ = MathUtil.floor(this.webTarget.h());
+        if (this.webAntiSuicide.getEffectiveValue().booleanValue()) {
+            int playerX = MathUtil.floor(player.z());
+            int playerY = MathUtil.floor(player.N());
+            int playerZ = MathUtil.floor(player.h());
+            if (targetX == playerX && targetY == playerY && targetZ == playerZ) {
+                return false;
+            }
+        }
         Block targetBlock = world.getBlockByPos(targetX, targetY, targetZ);
         if (targetBlock.isNull() || !BlockUtil.u(targetBlock)) {
             return false;
@@ -473,6 +491,7 @@ public class ShieldBreaker extends Mod {
         this.swapTicks = 0;
         this.restoreTicks = 0;
         this.webTicks = 0;
+        this.webVerifyTicks = 0;
         this.webTarget = null;
         this.cobwebSlot = -1;
         this.webSupportBlock = null;
