@@ -52,6 +52,7 @@ public class ShieldBreaker extends Mod {
     private final BooleanValue stunWeb;
     private final NumberValue webAimSpeed;
     private final BooleanValue webAntiSuicide;
+    private final NumberValue webDelay;
     private final BooleanValue limitToItems;
     private final LimitValue allowedItems;
     private final RotationControlClaim rotationClaim = SharedModuleControlClaims.rotation;
@@ -67,7 +68,7 @@ public class ShieldBreaker extends Mod {
     private int swapTicks;
     private int restoreTicks;
     private int webTicks;
-    private int webVerifyTicks;
+    private int webDelayTicks;
     private int cobwebSlot = -1;
     private EntityOtherPlayerMP webTarget;
     private BlockData webSupportBlock;
@@ -90,6 +91,8 @@ public class ShieldBreaker extends Mod {
                 "Speed of the aim when placing the cobweb");
         this.webAntiSuicide = BooleanValue.create(this, "Anti suicide", false,
                 "Doesn't place a web when it would be placed in your own block");
+        this.webDelay = NumberValue.create(this, "Web delay", "#", "ticks", 0.0, 0.0, 30.0, 1.0,
+                "Delay between breaking the shield and placing the web");
         this.limitToItems = BooleanValue.create(this, "Limit to items", false,
                 "ShieldBreaker functions only while holding selected items");
         this.allowedItems = LimitValue.create(this, "shieldbreaker-alloweditems", "Allowed Items",
@@ -97,8 +100,8 @@ public class ShieldBreaker extends Mod {
         this.swapDelay.setMaximumFractionDigits(0);
         this.swapBackDelay.setMaximumFractionDigits(0);
         this.limitToItems.addDependentValues(this.allowedItems);
-        this.stunWeb.addDependentValues(this.webAimSpeed, this.webAntiSuicide);
-        this.addValue(this.swapDelay, this.swapBackDelay, this.doubleClick, this.stunWeb, this.webAimSpeed, this.webAntiSuicide, this.limitToItems, this.allowedItems);
+        this.stunWeb.addDependentValues(this.webAimSpeed, this.webAntiSuicide, this.webDelay);
+        this.addValue(this.swapDelay, this.swapBackDelay, this.doubleClick, this.stunWeb, this.webAimSpeed, this.webAntiSuicide, this.webDelay, this.limitToItems, this.allowedItems);
         this.rotationClaim.setPriority(this, 7);
     }
 
@@ -263,7 +266,7 @@ public class ShieldBreaker extends Mod {
         this.webPlacementStarted = false;
         this.webClicked = false;
         this.webTicks = 0;
-        this.webVerifyTicks = 0;
+        this.webDelayTicks = 0;
         this.webRotationController = null;
         this.cobwebSlot = -1;
         this.webSupportBlock = null;
@@ -277,14 +280,7 @@ public class ShieldBreaker extends Mod {
             this.reset(player, false);
             return;
         }
-        if (this.webVerifyTicks < 4) {
-            if (++this.webVerifyTicks < 4) {
-                return;
-            }
-        }
-        if (this.webTarget != null && this.webTarget.isNotNull() && RotationUtil.n(this.webTarget)) {
-            this.restoreSlot(player);
-            this.reset(player, false);
+        if (this.webDelayTicks++ < this.webDelay.getValue().intValue()) {
             return;
         }
         if (!this.webPlacementStarted) {
@@ -295,20 +291,31 @@ public class ShieldBreaker extends Mod {
                 return;
             }
         }
+        if (this.webTicks >= 4 && this.webTarget != null && this.webTarget.isNotNull()
+                && RotationUtil.n(this.webTarget)) {
+            this.restoreSlot(player);
+            this.reset(player, false);
+            return;
+        }
+        if (!this.refreshPlacement(player)) {
+            this.restoreSlot(player);
+            this.reset(player, false);
+            return;
+        }
         if (!this.aimWeb()) {
             this.restoreSlot(player);
             this.reset(player, false);
             return;
         }
         if (this.webRotationController == null || !this.webRotationController.isComplete()) {
-            if (++this.webTicks > 50) {
+            if (++this.webTicks > 60) {
                 this.restoreSlot(player);
                 this.reset(player, false);
             }
             return;
         }
         if (!this.isWebRayTraceValid()) {
-            if (++this.webTicks > 10) {
+            if (++this.webTicks > 20) {
                 this.restoreSlot(player);
                 this.reset(player, false);
             }
@@ -328,13 +335,6 @@ public class ShieldBreaker extends Mod {
     }
 
     private boolean setupWebPlacement(EntityPlayerSP player) {
-        if (this.webTarget == null || this.webTarget.isNull()) {
-            return false;
-        }
-        World world = player.getWorld();
-        if (world.isNull()) {
-            return false;
-        }
         InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
         if (inventory == null || inventory.isNull()) {
             return false;
@@ -343,6 +343,17 @@ public class ShieldBreaker extends Mod {
         if (this.cobwebSlot < 0) {
             Vape.INSTANCE.getNotificationManager().show("ShieldBreaker", "Cobweb not in hotbar",
                     NotificationType.WARNING, 3000L);
+            return false;
+        }
+        return this.refreshPlacement(player);
+    }
+
+    private boolean refreshPlacement(EntityPlayerSP player) {
+        if (this.webTarget == null || this.webTarget.isNull()) {
+            return false;
+        }
+        World world = player.getWorld();
+        if (world.isNull()) {
             return false;
         }
         int targetX = MathUtil.floor(this.webTarget.z());
@@ -491,7 +502,7 @@ public class ShieldBreaker extends Mod {
         this.swapTicks = 0;
         this.restoreTicks = 0;
         this.webTicks = 0;
-        this.webVerifyTicks = 0;
+        this.webDelayTicks = 0;
         this.webTarget = null;
         this.cobwebSlot = -1;
         this.webSupportBlock = null;
