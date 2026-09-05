@@ -45,12 +45,12 @@ extends UtilityMod {
             "Aims without moving the camera when placing the web");
     private final NumberValue aimSpeed = NumberValue.create(this, "Aim speed", "#.#", "", 1.0, 5.0, 10.0, 0.1,
             "Speed of the aim when placing the web");
-    private final NumberValue sprintDelay = NumberValue.create(this, "Sprint delay", "#", "ticks", 0.0, 3.0, 10.0, 1.0,
+    private final NumberValue sprintDelay = NumberValue.create(this, "Sprint delay", "#", "ticks", 0.0, 0.0, 10.0, 1.0,
             "How long to force sprint before attacking");
-    private final NumberValue webDelay = NumberValue.create(this, "Web delay", "#", "ticks", 0.0, 7.0, 30.0, 1.0,
+    private final NumberValue webDelay = NumberValue.create(this, "Web delay", "#", "ticks", 0.0, 0.0, 30.0, 1.0,
             "How long to wait after the sprint hit before placing the web");
-    private final BooleanValue antiSuicide = BooleanValue.create(this, "Anti suicide", false,
-            "Doesn't place a web when it would be placed in your own block");
+    private final BooleanValue centerPunch = BooleanValue.create(this, "Center punch", false,
+            "Extra hit after the sprint hit to nudge the target into the block before placing the web");
 
     private final RotationControlClaim rotationClaim = SharedModuleControlClaims.rotation;
 
@@ -60,6 +60,7 @@ extends UtilityMod {
     private int cobwebSlot = -1;
     private boolean releasePending;
     private EntityOtherPlayerMP target;
+    private boolean punchFired;
     private int placeX;
     private int placeY;
     private int placeZ;
@@ -73,7 +74,7 @@ extends UtilityMod {
     public HeadWeb() {
         super("HeadWeb", Category.COMBAT,
                 "Sprint hits a target and places a web one block above their head");
-        this.addValue(this.silentAim, this.aimSpeed, this.sprintDelay, this.webDelay, this.antiSuicide);
+        this.addValue(this.silentAim, this.aimSpeed, this.sprintDelay, this.webDelay, this.centerPunch);
         this.rotationClaim.setPriority(this, 6);
     }
 
@@ -101,6 +102,7 @@ extends UtilityMod {
         }
         this.ticks = 0;
         this.releasePending = false;
+        this.punchFired = false;
         this.placeStarted = false;
         this.webClicked = false;
         this.webRotationController = null;
@@ -165,10 +167,20 @@ extends UtilityMod {
             this.finish();
             return;
         }
-        if (++this.ticks >= this.webDelay.getValue().intValue()) {
-            this.ticks = 0;
-            this.state = STATE_PLACE;
+        if (++this.ticks < this.webDelay.getValue().intValue()) {
+            return;
         }
+        this.ticks = 0;
+        if (this.centerPunch.getEffectiveValue().booleanValue() && !this.punchFired) {
+            this.punchFired = true;
+            this.releasePending = AttackKeyController.requestSyntheticAttack(this);
+            return;
+        }
+        if (this.punchFired && this.ticks < 4) {
+            return;
+        }
+        this.punchFired = false;
+        this.state = STATE_PLACE;
     }
 
     private void tickPlace(EntityPlayerSP player) {
@@ -196,13 +208,9 @@ extends UtilityMod {
             return;
         }
         if (!this.webClicked) {
-            this.ticks = 0;
             this.webClicked = true;
             player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.cobwebSlot);
             this.rightClick();
-            return;
-        }
-        if (++this.ticks >= 2) {
             this.finish();
         }
     }
@@ -214,14 +222,6 @@ extends UtilityMod {
         World world = player.getWorld();
         if (world.isNull()) {
             return false;
-        }
-        if (this.antiSuicide.getEffectiveValue().booleanValue()) {
-            int playerX = MathUtil.floor(player.z());
-            int playerY = MathUtil.floor(player.N());
-            int playerZ = MathUtil.floor(player.h());
-            if (this.placeX == playerX && this.placeY == playerY && this.placeZ == playerZ) {
-                return false;
-            }
         }
         Block targetBlock = world.getBlockByPos(this.placeX, this.placeY, this.placeZ);
         if (targetBlock.isNull() || !BlockUtil.u(targetBlock)) {
