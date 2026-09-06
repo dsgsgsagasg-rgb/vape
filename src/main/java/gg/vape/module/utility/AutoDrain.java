@@ -117,7 +117,7 @@ extends Mod {
             return;
         }
         BlockPos hitPos = mouseOver.getBlockPos();
-        if (BlockPlacementUtility.getWaterBucketItem().equals(usedItem)) {
+        if (BlockPlacementUtility.getEmptyBucketItem().equals(usedItem)) {
             EnumFacing sideHit = mouseOver.getSideHit();
             if (sideHit == null || sideHit.isNull()) {
                 return;
@@ -128,7 +128,7 @@ extends Mod {
             }
             return;
         }
-        if (BlockPlacementUtility.getEmptyBucketItem().equals(usedItem)) {
+        if (BlockPlacementUtility.getWaterBucketItem().equals(usedItem)) {
             BlockData hitData = BlockData.E(hitPos);
             if (this.playerPlacedWater.contains(hitData)) {
                 this.playerPlacedWater.remove(hitData);
@@ -331,10 +331,11 @@ extends Mod {
         int baseX = MathUtil.floor(playerX);
         int baseY = MathUtil.floor(playerY);
         int baseZ = MathUtil.floor(playerZ);
-        int radius = MathUtil.ceil(reach);
+        double effectiveReach = Math.min(reach, 5.0);
+        int radius = MathUtil.ceil(effectiveReach);
         int minY = Math.max(world.R(), baseY - 4);
         int maxY = baseY + 3;
-        double reachSquared = reach * reach;
+        double reachSquared = effectiveReach * effectiveReach;
         BlockData best = null;
         double bestDistance = Double.MAX_VALUE;
         for (int x = baseX - radius; x <= baseX + radius; ++x) {
@@ -353,7 +354,7 @@ extends Mod {
                     if (this.playerPlacedWater.contains(blockData) || this.handledWater.contains(blockData)) {
                         continue;
                     }
-                    if (!this.isWaterSource(world, blockData)) {
+                    if (!this.isWaterSource(world, blockData) || !this.isWaterReachable(player, world, x, y, z, effectiveReach)) {
                         continue;
                     }
                     double distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
@@ -366,6 +367,33 @@ extends Mod {
             }
         }
         return best;
+    }
+
+    private boolean isWaterReachable(EntityPlayerSP player, World world, int blockX, int blockY, int blockZ, double reach) {
+        if (world == null || world.isNull()) {
+            return false;
+        }
+        double traceLength = Math.min(reach, 5.0);
+        double eyeX = player.z();
+        double eyeY = player.N() + (double)player.X();
+        double eyeZ = player.h();
+        Vec3 eye = Vec3.create(eyeX, eyeY, eyeZ);
+        Vec3 target = Vec3.create((double)blockX + 0.5, (double)blockY + 0.5, (double)blockZ + 0.5);
+        double distance = eye.distanceTo(target);
+        if (distance > traceLength || distance <= 1.0E-4) {
+            return false;
+        }
+        double deltaX = target.getX() - eyeX;
+        double deltaY = target.getY() - eyeY;
+        double deltaZ = target.getZ() - eyeZ;
+        double lengthScale = traceLength / distance;
+        Vec3 end = eye.addVector(deltaX * lengthScale, deltaY * lengthScale, deltaZ * lengthScale);
+        RayTraceResult hit = world.K(eye, end, true, false, false, player);
+        if (hit == null || hit.isNull() || !hit.isBlockHit() || hit.getBlockPos() == null || hit.getBlockPos().isNull()) {
+            return false;
+        }
+        BlockPos hitPos = hit.getBlockPos();
+        return hitPos.getX() == blockX && hitPos.getY() == blockY && hitPos.getZ() == blockZ;
     }
 
     private void pruneWaterSets(World world) {
