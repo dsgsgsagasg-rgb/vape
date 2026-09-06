@@ -82,6 +82,7 @@ import gg.vape.module.render.hud.WeatherChangerHudModule;
 import gg.vape.module.render.proj.Projectiles;
 import gg.vape.module.utility.ArmorSwitch;
 import gg.vape.module.utility.AutoArmor;
+import gg.vape.module.utility.AutoDrain;
 import gg.vape.module.utility.InvCleaner;
 import gg.vape.module.utility.MLG;
 import gg.vape.module.utility.AutoPearl;
@@ -223,7 +224,7 @@ implements EventListener {
         this.registerModules(Stream.of(new AutoFish(), new BedBreaker(), new AutoLadder(), new Clutch(), new FakeLag()), ModManager::addMinecraft1710Constraint);
         this.registerModules(Stream.of(new BedPlates()), ModManager::addBedPlatesVersionConstraints);
         this.registerModules(Stream.of(new AntiBot()));
-        this.registerModules(Stream.of(new Triggerbot(), new HitSwap(), new AutoMace(), new AutoAnchor(), new WindCharge(), new CrystalAura(), new AutoTotem(), new ShieldBreaker(), new PearlCatch(), new HeadWeb()), ModManager::addMinecraft1214Constraint);
+        this.registerModules(Stream.of(new Triggerbot(), new HitSwap(), new AutoMace(), new AutoAnchor(), new WindCharge(), new CrystalAura(), new AutoTotem(), new ShieldBreaker(), new PearlCatch(), new HeadWeb(), new AutoDrain()), ModManager::addMinecraft1214Constraint);
         this.registerModules(Stream.of(new NoFall(), new NoSlowdown(), new Speed(), new NoItemRelease(), new Timer()), ModManager::addModernMinecraftConstraint);
         this.registerTextGuiSettings();
         this.registerHudModules();
