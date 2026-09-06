@@ -129,7 +129,12 @@ public class LocalConfigStorage {
                 fileName = stripped + "-" + suffix + PROFILE_FILE_EXTENSION;
                 ++suffix;
             }
-            saveJson(CONFIG_DIRECTORY.resolve(fileName), profile);
+            try {
+                saveJson(CONFIG_DIRECTORY.resolve(fileName), profile);
+            }
+            catch (IOException exception) {
+                Vape.logThrowable(exception);
+            }
         }
         return activeProfileUuids;
     }
