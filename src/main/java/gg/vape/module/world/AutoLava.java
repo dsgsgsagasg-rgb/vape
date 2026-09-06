@@ -2,11 +2,14 @@ package gg.vape.module.world;
 
 import gg.vape.Vape;
 import gg.vape.event.EventHandler;
+import gg.vape.event.EventPriority;
 import gg.vape.event.impl.EventPreTick;
+import gg.vape.event.impl.EventRightClickMouse;
 import gg.vape.mapping.ItemMappingEntry;
 import gg.vape.mapping.MappedClasses;
 import gg.vape.module.Category;
 import gg.vape.module.UtilityMod;
+import gg.vape.module.blatant.blockin.BlockPlacementUtility;
 import gg.vape.module.control.SharedModuleControlClaims;
 import gg.vape.module.utility.clutch.ClutchPlacementPathUtils;
 import gg.vape.module.utility.clutch.PlacementTarget;
@@ -16,9 +19,12 @@ import gg.vape.rotation.RotationControlClaim;
 import gg.vape.rotation.RotationManager;
 import gg.vape.utils.BlockUtil;
 import gg.vape.utils.MathUtil;
+import gg.vape.utils.TimerUtil;
 import gg.vape.utils.datas.BlockData;
 import gg.vape.value.BooleanValue;
+import gg.vape.value.NumberValue;
 import gg.vape.wrapper.impl.Block;
+import gg.vape.wrapper.impl.BlockPos;
 import gg.vape.wrapper.impl.Entity;
 import gg.vape.wrapper.impl.EntityOtherPlayerMP;
 import gg.vape.wrapper.impl.EntityPlayerSP;
@@ -31,15 +37,22 @@ import gg.vape.wrapper.impl.RayTraceResult;
 import gg.vape.wrapper.impl.Vec3;
 import gg.vape.wrapper.impl.Vec3i;
 import gg.vape.wrapper.impl.World;
+import java.util.List;
 
 public class AutoLava
 extends UtilityMod {
     private static final int STATE_PLACE = 0;
+    private static final int STATE_PICKUP = 1;
     private static final float PLACEMENT_AIM_SPEED = 200.0f;
+    private static final float PICKUP_AIM_SPEED = 120.0f;
     private static final double MAX_TARGET_DISTANCE = 4.5;
 
     private final BooleanValue silentAim = BooleanValue.create(this, "Silent aim", true,
             "Aims without moving the camera when placing the lava");
+    private final BooleanValue takeBackLava = BooleanValue.create(this, "Take back lava", true,
+            "Collects the placed lava back into the bucket after a delay");
+    private final NumberValue takeBackDelay = NumberValue.create(this, "Take back delay", "#.#", "s", 0.0, 2.0, 15.0, 0.5,
+            "How long to wait before picking the lava back up");
 
     private final RotationControlClaim rotationClaim = SharedModuleControlClaims.rotation;
 
@@ -57,11 +70,16 @@ extends UtilityMod {
     private BlockData lavaSupportBlock;
     private EnumFacing lavaFacing;
     private Vec3 lavaAimPoint;
+    private TimerUtil pickupTimer;
+    private boolean pickupClicked;
+    private AdaptiveRotationController pickupRotationController;
+    private RayTraceResult pickupOverrideRayTrace;
+    private boolean pickupClickPending;
 
     public AutoLava() {
         super("AutoLava", Category.WORLD,
-                "Places a lava bucket from your hotbar at the aimed enemy");
-        this.addValue(this.silentAim);
+                "Places a lava bucket at the nearest enemy's feet");
+        this.addValue(this.silentAim, this.takeBackLava, this.takeBackDelay);
         this.rotationClaim.setPriority(this, 6);
     }
 
@@ -100,6 +118,12 @@ extends UtilityMod {
         this.lavaSupportBlock = null;
         this.lavaFacing = null;
         this.lavaAimPoint = null;
+        this.pickupTimer = new TimerUtil();
+        this.pickupTimer.reset();
+        this.pickupClicked = false;
+        this.pickupRotationController = null;
+        this.pickupOverrideRayTrace = null;
+        this.pickupClickPending = false;
         this.state = STATE_PLACE;
     }
 
@@ -110,9 +134,19 @@ extends UtilityMod {
             this.finish();
             return;
         }
-        if (this.state != STATE_PLACE) {
-            return;
+        switch (this.state) {
+            case STATE_PLACE: {
+                this.tickPlace(player);
+                break;
+            }
+            case STATE_PICKUP: {
+                this.tickPickup(player);
+                break;
+            }
         }
+    }
+
+    private void tickPlace(EntityPlayerSP player) {
         if (!this.placeStarted) {
             this.placeStarted = this.setupPlacement(player);
             if (!this.placeStarted) {
@@ -140,6 +174,78 @@ extends UtilityMod {
             this.lavaClicked = true;
             this.ticks = 0;
             player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.lavaSlot);
+            this.rightClick();
+            return;
+        }
+        if (++this.ticks >= 2) {
+            this.startPickup(player);
+        }
+    }
+
+    private void startPickup(EntityPlayerSP player) {
+        if (!this.takeBackLava.getEffectiveValue() || this.target == null || this.target.isNull()) {
+            this.finish();
+            return;
+        }
+        this.pickupTimer = new TimerUtil();
+        this.pickupTimer.reset();
+        this.pickupClicked = false;
+        this.pickupRotationController = null;
+        this.pickupOverrideRayTrace = null;
+        this.pickupClickPending = false;
+        this.ticks = 0;
+        this.state = STATE_PICKUP;
+    }
+
+    private void tickPickup(EntityPlayerSP player) {
+        if (player.i((double)this.placeX + 0.5, (double)this.placeY + 0.5, (double)this.placeZ + 0.5)
+                > MAX_TARGET_DISTANCE) {
+            this.finish();
+            return;
+        }
+        long delayMs = (long)(this.takeBackDelay.getValue().doubleValue() * 1000.0);
+        if (!this.pickupClicked && this.pickupTimer != null
+                && delayMs > 0L && !this.pickupTimer.hasTimeElapsed(delayMs)) {
+            return;
+        }
+        InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
+        int heldSlot = inventory.v();
+        ItemStack heldStack = inventory.c(heldSlot);
+        boolean hasBucket = heldStack != null && heldStack.isNotNull() && BlockPlacementUtility.getEmptyBucketItem()
+                .equals(Vape.INSTANCE.getItemStackResolver().resolve(heldStack));
+        if (!hasBucket) {
+            int bucketSlot = this.findEmptyBucketSlot(inventory);
+            if (bucketSlot < 0) {
+                this.finish();
+                return;
+            }
+            inventory.g(bucketSlot);
+        }
+        if (!this.aimPickup()) {
+            if (++this.ticks > 60) {
+                this.finish();
+            }
+            return;
+        }
+        if (this.pickupRotationController == null || !this.pickupRotationController.isComplete()) {
+            if (++this.ticks > 60) {
+                this.finish();
+            }
+            return;
+        }
+        RayTraceResult lavaHit = RotationManager.INSTANCE.rayTraceUsingManagedRotation(true);
+        if (lavaHit == null || lavaHit.isNull() || !this.isPickupLavaHit(lavaHit)) {
+            if (++this.ticks > 60) {
+                this.finish();
+            }
+            return;
+        }
+        if (!this.pickupClicked) {
+            this.pickupClicked = true;
+            this.ticks = 0;
+            this.pickupOverrideRayTrace = lavaHit;
+            this.pickupClickPending = true;
+            Minecraft.O(lavaHit);
             this.rightClick();
             return;
         }
@@ -244,6 +350,77 @@ extends UtilityMod {
         return true;
     }
 
+    private boolean aimPickup() {
+        if (!this.rotationClaim.isOwnedBy(this) && !this.rotationClaim.acquire(this, this.silentAim.getEffectiveValue())) {
+            return false;
+        }
+        Vec3 aimPoint = Vec3.create((double)this.placeX + 0.5, (double)this.placeY + 0.5, (double)this.placeZ + 0.5);
+        if (this.pickupRotationController == null) {
+            AdaptiveRotationController controller = new AdaptiveRotationController(aimPoint);
+            controller.setNormalizeTargetYaw(false);
+            controller.setRetainAfterCompletion(true);
+            controller.setClampStepToRemaining(true);
+            controller.setTolerance(0.1f);
+            controller.setRelativeMode(false);
+            controller.setSpeed(PICKUP_AIM_SPEED);
+            this.pickupRotationController = controller;
+        }
+        if (this.pickupRotationController instanceof AdaptiveRotationController) {
+            this.pickupRotationController.setTarget(aimPoint);
+        }
+        this.pickupRotationController.setSpeed(PICKUP_AIM_SPEED);
+        if (!this.pickupRotationController.equals(RotationManager.INSTANCE.getActiveController())) {
+            RotationManager.INSTANCE.setController(this.pickupRotationController);
+        }
+        return true;
+    }
+
+    private boolean isPickupLavaHit(RayTraceResult rayTraceResult) {
+        if (rayTraceResult == null || rayTraceResult.isNull() || !rayTraceResult.isBlockHit()) {
+            return false;
+        }
+        BlockPos hitPos = rayTraceResult.getBlockPos();
+        if (hitPos == null || !hitPos.isNotNull()) {
+            return false;
+        }
+        if (hitPos.getX() != this.placeX || hitPos.getY() != this.placeY || hitPos.getZ() != this.placeZ) {
+            return false;
+        }
+        Block block = Minecraft.theWorld().getBlockByPos(this.placeX, this.placeY, this.placeZ);
+        if (block == null || block.isNull() || !BlockUtil.C(block)) {
+            return false;
+        }
+        String stateString = block.a().toString();
+        return stateString != null && stateString.contains("level=0");
+    }
+
+    private int findEmptyBucketSlot(InventoryPlayer inventory) {
+        ItemMappingEntry emptyBucket = BlockPlacementUtility.getEmptyBucketItem();
+        if (emptyBucket == null) {
+            return -1;
+        }
+        for (int slot = 0; slot < 9; ++slot) {
+            ItemStack stack = inventory.c(slot);
+            if (stack == null || stack.isNull() || stack.getItem() == null || stack.getItem().isNull()) {
+                continue;
+            }
+            ItemMappingEntry resolved = Vape.INSTANCE.getItemStackResolver().resolve(stack);
+            if (resolved != null && emptyBucket.equals(resolved)) {
+                return slot;
+            }
+        }
+        return -1;
+    }
+
+    @EventHandler(priority=EventPriority.LOWEST)
+    public void onRightClickMouse(EventRightClickMouse eventRightClickMouse) {
+        if (this.pickupClickPending && this.pickupOverrideRayTrace != null && this.pickupOverrideRayTrace.isNotNull()) {
+            Minecraft.O(this.pickupOverrideRayTrace);
+        }
+        this.pickupClickPending = false;
+        this.pickupOverrideRayTrace = null;
+    }
+
     private boolean isLavaRayTraceValid() {
         if (this.lavaSupportBlock == null) {
             return false;
@@ -301,21 +478,35 @@ extends UtilityMod {
     }
 
     private EntityOtherPlayerMP findTarget(EntityPlayerSP player) {
-        RayTraceResult rayTrace = RotationManager.INSTANCE.getExtendedReachRayTrace();
-        if (rayTrace == null || !rayTrace.isEntityHit()) {
+        World world = Minecraft.theWorld();
+        if (world == null || world.isNull()) {
             return null;
         }
-        Entity entity = rayTrace.getEntity();
-        if (entity == null || !entity.isNotNull() || !entity.isInstance(MappedClasses.lG)) {
+        EntityOtherPlayerMP best = null;
+        double bestDistance = MAX_TARGET_DISTANCE;
+        List loadedEntities = world.z();
+        if (loadedEntities == null) {
             return null;
         }
-        if (entity.S() == player.S() || !Vape.INSTANCE.getClientSettings().isValidTarget(entity, false)) {
-            return null;
+        for (Object entityObject : loadedEntities) {
+            Entity entity = new Entity(entityObject);
+            if (entity == null || !entity.isNotNull() || !entity.isInstance(MappedClasses.zm)
+                    || !entity.isInstance(MappedClasses.lG)) {
+                continue;
+            }
+            EntityOtherPlayerMP candidate = new EntityOtherPlayerMP(entityObject);
+            if (candidate.S() == player.S()
+                    || !Vape.INSTANCE.getClientSettings().isValidTarget(candidate, false)) {
+                continue;
+            }
+            double distance = (double)player.getDistanceToEntity(candidate);
+            if (distance > MAX_TARGET_DISTANCE || distance >= bestDistance) {
+                continue;
+            }
+            best = candidate;
+            bestDistance = distance;
         }
-        if (player.getDistanceToEntity(entity) > MAX_TARGET_DISTANCE) {
-            return null;
-        }
-        return new EntityOtherPlayerMP(entity.getObject());
+        return best;
     }
 
     private void finish() {
@@ -328,14 +519,21 @@ extends UtilityMod {
         if (this.lavaRotationController != null) {
             RotationManager.INSTANCE.releaseController(this.lavaRotationController);
         }
+        if (this.pickupRotationController != null) {
+            RotationManager.INSTANCE.releaseController(this.pickupRotationController);
+        }
         this.rotationClaim.release(this);
         this.lavaRotationController = null;
+        this.pickupRotationController = null;
+        this.pickupOverrideRayTrace = null;
+        this.pickupClickPending = false;
         this.target = null;
         this.lavaSupportBlock = null;
         this.lavaFacing = null;
         this.lavaAimPoint = null;
         this.originalSlot = -1;
         this.lavaSlot = -1;
+        this.state = STATE_PLACE;
         this.setEnabled(false, true);
     }
 
@@ -350,8 +548,14 @@ extends UtilityMod {
         if (this.lavaRotationController != null) {
             RotationManager.INSTANCE.releaseController(this.lavaRotationController);
         }
+        if (this.pickupRotationController != null) {
+            RotationManager.INSTANCE.releaseController(this.pickupRotationController);
+        }
         this.rotationClaim.release(this);
         this.lavaRotationController = null;
+        this.pickupRotationController = null;
+        this.pickupOverrideRayTrace = null;
+        this.pickupClickPending = false;
         this.target = null;
         this.lavaSupportBlock = null;
         this.lavaFacing = null;

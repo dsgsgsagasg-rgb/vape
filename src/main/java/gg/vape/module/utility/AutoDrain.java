@@ -7,6 +7,7 @@ import gg.vape.event.impl.EventPlayerUseItem;
 import gg.vape.event.impl.EventRightClickMouse;
 import gg.vape.event.impl.EventPreTick;
 import gg.vape.event.impl.EventWorldChange;
+import gg.vape.mapping.ItemMappingEntry;
 import gg.vape.module.Category;
 import gg.vape.module.Mod;
 import gg.vape.module.blatant.blockin.BlockPlacementUtility;
@@ -26,6 +27,7 @@ import gg.vape.wrapper.impl.Block;
 import gg.vape.wrapper.impl.BlockPos;
 import gg.vape.wrapper.impl.BlockState;
 import gg.vape.wrapper.impl.EntityPlayerSP;
+import gg.vape.wrapper.impl.EnumFacing;
 import gg.vape.wrapper.impl.InventoryPlayer;
 import gg.vape.wrapper.impl.ItemStack;
 import gg.vape.wrapper.impl.KeyBinding;
@@ -66,10 +68,6 @@ extends Mod {
     private AdaptiveRotationController rotationController;
     private RayTraceResult clickOverrideRayTrace;
     private boolean clickPending;
-    private boolean rotationRestorePending;
-    private float savedYaw;
-    private float savedPitch;
-    private float savedYawOffset;
 
     public AutoDrain() {
         super("AutoDrain", (int)MODULE_ID, Category.UTILITY,
@@ -105,18 +103,37 @@ extends Mod {
         if (itemStack == null || itemStack.isNull()) {
             return;
         }
-        if (!BlockPlacementUtility.getWaterBucketItem().equals(Vape.INSTANCE.getItemStackResolver().resolve(itemStack))) {
+        ItemMappingEntry usedItem = Vape.INSTANCE.getItemStackResolver().resolve(itemStack);
+        if (usedItem == null) {
             return;
         }
         EntityPlayerSP player = Minecraft.thePlayer();
         if (player.isNull()) {
             return;
         }
-        BlockPos placedPos = BlockPlacementUtility.getPlacementBlockPos(BlockPlacementUtility.getWaterBucketItem());
-        if (placedPos == null || placedPos.isNull()) {
+        RayTraceResult mouseOver = Minecraft.p$src$Lgg_vape_wrapper_impl_RayTraceResult_$5rw6n0();
+        if (mouseOver == null || mouseOver.isNull() || !mouseOver.isBlockHit()
+                || mouseOver.getBlockPos() == null || mouseOver.getBlockPos().isNull()) {
             return;
         }
-        this.playerPlacedWater.add(BlockData.E(placedPos));
+        BlockPos hitPos = mouseOver.getBlockPos();
+        if (BlockPlacementUtility.getWaterBucketItem().equals(usedItem)) {
+            EnumFacing sideHit = mouseOver.getSideHit();
+            if (sideHit == null || sideHit.isNull()) {
+                return;
+            }
+            BlockPos placedPos = hitPos.offset(sideHit);
+            if (placedPos != null && placedPos.isNotNull()) {
+                this.playerPlacedWater.add(BlockData.E(placedPos));
+            }
+            return;
+        }
+        if (BlockPlacementUtility.getEmptyBucketItem().equals(usedItem)) {
+            BlockData hitData = BlockData.E(hitPos);
+            if (this.playerPlacedWater.contains(hitData)) {
+                this.playerPlacedWater.remove(hitData);
+            }
+        }
     }
 
     @EventHandler
@@ -214,7 +231,6 @@ extends Mod {
         if (this.bucketSlot >= 0) {
             inventory.g(this.bucketSlot);
         }
-        this.spoofRotation(player);
         this.clickOverrideRayTrace = fluidHit;
         this.clickPending = true;
         Minecraft.O(fluidHit);
@@ -227,9 +243,6 @@ extends Mod {
     private void tickRestore(EntityPlayerSP player) {
         if (++this.ticks < 2) {
             return;
-        }
-        if (this.rotationRestorePending) {
-            this.restoreRotation(player);
         }
         this.clickPending = false;
         this.clickOverrideRayTrace = null;
@@ -262,28 +275,6 @@ extends Mod {
         BlockPos hitPos = rayTraceResult.getBlockPos();
         return hitPos != null && hitPos.isNotNull()
                 && hitPos.getX() == this.target.D() && hitPos.getY() == this.target.B() && hitPos.getZ() == this.target.G();
-    }
-
-    private void spoofRotation(EntityPlayerSP player) {
-        this.savedYaw = player.J();
-        this.savedPitch = player.V();
-        this.savedYawOffset = player.s();
-        this.rotationRestorePending = true;
-        float managedYaw = RotationManager.INSTANCE.getManagedYaw();
-        float managedPitch = RotationManager.INSTANCE.getManagedPitch();
-        player.H(managedYaw);
-        player.z(managedYaw);
-        player.C(managedPitch);
-    }
-
-    private void restoreRotation(EntityPlayerSP player) {
-        this.rotationRestorePending = false;
-        if (player == null || player.isNull()) {
-            return;
-        }
-        player.H(this.savedYaw);
-        player.z(this.savedYawOffset);
-        player.C(this.savedPitch);
     }
 
     private boolean updateAim() {
@@ -429,11 +420,8 @@ extends Mod {
 
     private void cancel() {
         EntityPlayerSP player = Minecraft.thePlayer();
-        if (player.isNotNull()) {
-            this.restoreRotation(player);
-            if (Minecraft.currentScreen().isNull() && this.originalSlot >= 0) {
-                player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.originalSlot);
-            }
+        if (player.isNotNull() && Minecraft.currentScreen().isNull() && this.originalSlot >= 0) {
+            player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.originalSlot);
         }
         this.clickPending = false;
         this.clickOverrideRayTrace = null;
