@@ -3,7 +3,6 @@ package gg.vape.module.utility;
 import gg.vape.Vape;
 import gg.vape.event.EventHandler;
 import gg.vape.event.EventPriority;
-import gg.vape.event.impl.EventPlayerUseItem;
 import gg.vape.event.impl.EventRightClickMouse;
 import gg.vape.event.impl.EventPreTick;
 import gg.vape.event.impl.EventWorldChange;
@@ -95,45 +94,6 @@ extends Mod {
         this.handledWater.clear();
         this.playerPlacedWater.clear();
         this.cancel();
-    }
-
-    @EventHandler
-    public void onPlayerUseItem(EventPlayerUseItem eventPlayerUseItem) {
-        ItemStack itemStack = eventPlayerUseItem.getItemStack();
-        if (itemStack == null || itemStack.isNull()) {
-            return;
-        }
-        ItemMappingEntry usedItem = Vape.INSTANCE.getItemStackResolver().resolve(itemStack);
-        if (usedItem == null) {
-            return;
-        }
-        EntityPlayerSP player = Minecraft.thePlayer();
-        if (player.isNull()) {
-            return;
-        }
-        RayTraceResult mouseOver = Minecraft.p$src$Lgg_vape_wrapper_impl_RayTraceResult_$5rw6n0();
-        if (mouseOver == null || mouseOver.isNull() || !mouseOver.isBlockHit()
-                || mouseOver.getBlockPos() == null || mouseOver.getBlockPos().isNull()) {
-            return;
-        }
-        BlockPos hitPos = mouseOver.getBlockPos();
-        if (BlockPlacementUtility.getEmptyBucketItem().equals(usedItem)) {
-            EnumFacing sideHit = mouseOver.getSideHit();
-            if (sideHit == null || sideHit.isNull()) {
-                return;
-            }
-            BlockPos placedPos = hitPos.offset(sideHit);
-            if (placedPos != null && placedPos.isNotNull()) {
-                this.playerPlacedWater.add(BlockData.E(placedPos));
-            }
-            return;
-        }
-        if (BlockPlacementUtility.getWaterBucketItem().equals(usedItem)) {
-            BlockData hitData = BlockData.E(hitPos);
-            if (this.playerPlacedWater.contains(hitData)) {
-                this.playerPlacedWater.remove(hitData);
-            }
-        }
     }
 
     @EventHandler
@@ -266,6 +226,51 @@ extends Mod {
         }
         this.clickPending = false;
         this.clickOverrideRayTrace = null;
+        this.trackBucketUse();
+    }
+
+    private void trackBucketUse() {
+        EntityPlayerSP player = Minecraft.thePlayer();
+        if (player == null || player.isNull()) {
+            return;
+        }
+        World world = player.getWorld();
+        if (world == null || world.isNull()) {
+            return;
+        }
+        InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
+        ItemStack heldStack = inventory.c(inventory.v());
+        if (heldStack == null || heldStack.isNull()) {
+            return;
+        }
+        ItemMappingEntry heldItem = Vape.INSTANCE.getItemStackResolver().resolve(heldStack);
+        if (heldItem == null) {
+            return;
+        }
+        ItemMappingEntry emptyBucket = BlockPlacementUtility.getEmptyBucketItem();
+        ItemMappingEntry waterBucket = BlockPlacementUtility.getWaterBucketItem();
+        boolean isEmptyBucket = emptyBucket != null && emptyBucket.equals(heldItem);
+        boolean isWaterBucket = waterBucket != null && waterBucket.equals(heldItem);
+        RayTraceResult mouseOver = Minecraft.p$src$Lgg_vape_wrapper_impl_RayTraceResult_$5rw6n0();
+        if (mouseOver == null || mouseOver.isNull() || !mouseOver.isBlockHit()
+                || mouseOver.getBlockPos() == null || mouseOver.getBlockPos().isNull()) {
+            return;
+        }
+        BlockPos hitPos = mouseOver.getBlockPos();
+        if (isEmptyBucket && this.isWaterSource(world, BlockData.E(hitPos))) {
+            this.playerPlacedWater.remove(BlockData.E(hitPos));
+            return;
+        }
+        if (isWaterBucket) {
+            EnumFacing sideHit = mouseOver.getSideHit();
+            if (sideHit == null || sideHit.isNull()) {
+                return;
+            }
+            BlockPos placedPos = hitPos.offset(sideHit);
+            if (placedPos != null && placedPos.isNotNull()) {
+                this.playerPlacedWater.add(BlockData.E(placedPos));
+            }
+        }
     }
 
     private boolean isFullWaterHit(RayTraceResult rayTraceResult) {
