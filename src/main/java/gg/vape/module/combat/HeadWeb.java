@@ -69,7 +69,7 @@ extends UtilityMod {
 
     public HeadWeb() {
         super("HeadWeb", Category.COMBAT,
-                "Sprint hits a target and places a web three blocks above their feet");
+                "Sprint hits a target and places a web two blocks above their feet");
         this.addValue(this.silentAim, this.sprintDelay, this.webDelay);
         this.rotationClaim.setPriority(this, 6);
     }
@@ -149,7 +149,7 @@ extends UtilityMod {
 
     private void tickAttack(EntityPlayerSP player) {
         this.placeX = MathUtil.floor(this.target.z());
-        this.placeY = MathUtil.floor(this.target.N()) + 3;
+        this.placeY = MathUtil.floor(this.target.N()) + 2;
         this.placeZ = MathUtil.floor(this.target.h());
         this.releasePending = AttackKeyController.requestSyntheticAttack(this);
         this.releaseForcedKeys(player);
@@ -195,8 +195,12 @@ extends UtilityMod {
         }
         if (!this.webClicked) {
             this.webClicked = true;
+            this.ticks = 0;
             player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.cobwebSlot);
             this.rightClick();
+            return;
+        }
+        if (++this.ticks >= 2) {
             this.finish();
         }
     }
