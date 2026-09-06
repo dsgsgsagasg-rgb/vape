@@ -13,6 +13,7 @@ import gg.vape.config.LocalConfigStorage;
 import gg.vape.config.Profile;
 import gg.vape.config.SettingsDataType;
 import gg.vape.manager.client.OnlineConnectionManager;
+import gg.vape.manager.client.ProfilesManager;
 import gg.vape.notification.SettingsSyncStatusNotification;
 import gg.vape.runtime.NativeBridge;
 import gg.vape.utils.Base64Util;
@@ -78,6 +79,10 @@ public class SyncThread {
 
     public void saveLocalConfig() {
         try {
+            if (this.vape.getProfilesManager() == null || this.vape.getFriendManager() == null
+                    || this.vape.getSettingsManager() == null) {
+                return;
+            }
             this.prepareActiveProfileForSave();
             LocalConfigStorage.save(this.buildSettingsPayload(false));
         }
@@ -88,7 +93,11 @@ public class SyncThread {
 
     private void prepareActiveProfileForSave() {
         try {
-            Profile activeProfile = this.vape.getProfilesManager().getActiveProfile();
+            ProfilesManager profilesManager = this.vape.getProfilesManager();
+            if (profilesManager == null) {
+                return;
+            }
+            Profile activeProfile = profilesManager.getActiveProfile();
             if (activeProfile != null) {
                 activeProfile.captureCurrentState();
             }
