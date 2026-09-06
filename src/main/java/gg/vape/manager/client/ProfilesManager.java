@@ -4,9 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import gg.vape.Vape;
-import gg.vape.config.BuiltinProfile;
-import gg.vape.config.BuiltinProfileState;
-import gg.vape.config.Minecraft121BuiltinProfile;
 import gg.vape.config.Profile;
 import gg.vape.config.ProfilesSyncPayloadBuilder;
 import gg.vape.config.PublicProfile;
@@ -130,6 +127,9 @@ public class ProfilesManager {
         for (Map.Entry entry : jsonObject.entrySet()) {
             JsonObject jsonObject2 = ((JsonElement)entry.getValue()).getAsJsonObject();
             Profile profile = new Profile("", "", true).loadJson(jsonObject2);
+            if (ProfilesManager.isBuiltinStarterProfile(profile)) {
+                continue;
+            }
             this.addProfile(profile);
         }
         try {
@@ -146,20 +146,15 @@ public class ProfilesManager {
     }
 
     private Profile initializeBuiltinProfiles() {
-        ArrayList<BuiltinProfile> builtinProfiles = new ArrayList<BuiltinProfile>();
-        builtinProfiles.add(new Minecraft121BuiltinProfile());
-        builtinProfiles.add(new BuiltinProfileState());
-        Profile selectedProfile = null;
-        for (BuiltinProfile builtinProfile : builtinProfiles) {
-            builtinProfile.applyPreset();
-            this.addProfile(builtinProfile);
-            if (selectedProfile != null || !builtinProfile.isApplicable()) continue;
-            selectedProfile = builtinProfile;
-        }
-        if (selectedProfile == null && !this.profiles.isEmpty()) {
-            selectedProfile = this.profiles.get(0);
-        }
-        return selectedProfile;
+        Profile defaultProfile = new Profile("Default", "4.21", true);
+        defaultProfile.captureCurrentState();
+        this.addProfile(defaultProfile);
+        return defaultProfile;
+    }
+
+    private static boolean isBuiltinStarterProfile(Profile profile) {
+        String name = profile == null || profile.getName() == null ? null : profile.getName();
+        return "Classic PVP".equalsIgnoreCase(name) || "Modern PVP".equalsIgnoreCase(name);
     }
 
     private static int compareProfileSortOrder(Profile first, Profile second) {
