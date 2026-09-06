@@ -351,8 +351,12 @@ extends Mod {
         if (blockName == null || !blockName.toLowerCase().contains("water")) {
             return false;
         }
-        String stateString = block.a().toString();
-        return stateString != null && stateString.contains("level=0");
+        String actualState = blockState.toString();
+        if (actualState != null && actualState.contains("level=")) {
+            return actualState.contains("level=0");
+        }
+        String defaultState = block.a().toString();
+        return defaultState != null && defaultState.contains("level=0");
     }
 
     private BlockData findNearestWaterSource(EntityPlayerSP player, World world, double reach) {
