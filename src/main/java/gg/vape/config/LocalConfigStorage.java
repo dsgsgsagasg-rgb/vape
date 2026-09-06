@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -43,6 +44,7 @@ public class LocalConfigStorage {
             Files.createDirectories(CONFIG_DIRECTORY);
             deleteIfExists(CONFIG_DIRECTORY.resolve(GLOBALS_FILE_NAME));
             Set<String> activeProfileUuids = new HashSet<String>();
+            Map<String, String> expectedFileNames = new HashMap<String, String>();
             Set<String> usedFileNames = new HashSet<String>();
             JsonObject profiles = config.has("profiles") ? config.getAsJsonObject("profiles") : null;
             if (profiles != null) {
@@ -70,6 +72,9 @@ public class LocalConfigStorage {
                         fileName = stripped + "-" + suffix + PROFILE_FILE_EXTENSION;
                         ++suffix;
                     }
+                    if (uuid != null) {
+                        expectedFileNames.put(uuid, fileName);
+                    }
                     try {
                         saveJson(CONFIG_DIRECTORY.resolve(fileName), snapshot);
                     }
@@ -78,7 +83,7 @@ public class LocalConfigStorage {
                     }
                 }
             }
-            pruneProfileFiles(activeProfileUuids);
+            pruneProfileFiles(activeProfileUuids, expectedFileNames);
             Vape.debugLog("Saved local config to " + CONFIG_DIRECTORY.toAbsolutePath() + " (" + activeProfileUuids.size()
                     + " profile file(s))");
         }
@@ -129,7 +134,7 @@ public class LocalConfigStorage {
         return wrapped;
     }
 
-    private static void pruneProfileFiles(Set<String> activeProfileUuids) {
+    private static void pruneProfileFiles(Set<String> activeProfileUuids, Map<String, String> expectedFileNames) {
         if (activeProfileUuids == null || activeProfileUuids.isEmpty()) {
             return;
         }
@@ -140,7 +145,12 @@ public class LocalConfigStorage {
                     continue;
                 }
                 String uuid = ConfigJsonUtils.getString(loaded, "uuid");
-                if (uuid == null || !activeProfileUuids.contains(uuid)) {
+                if (uuid == null) {
+                    continue;
+                }
+                String expectedName = expectedFileNames.get(uuid);
+                if (!activeProfileUuids.contains(uuid)
+                        || expectedName != null && !file.getFileName().toString().equals(expectedName)) {
                     try {
                         Files.delete(file);
                     }
