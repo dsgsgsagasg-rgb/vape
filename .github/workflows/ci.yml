@@ -63,3 +63,36 @@ jobs:
           path: build/injection/
           if-no-files-found: error
           retention-days: 14
+
+  build-java-linux:
+    name: 构建并验证纯 Java 载荷 (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 校验 Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: 配置 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 配置 Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 构建并验证 Java 载荷
+        shell: bash
+        run: ./gradlew clean build verifyInjectionPayload --stacktrace
+
+      - name: 上传 Java 注入载荷 (Linux)
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-injection-payload-linux
+          path: build/libs/*-injection.jar
+          if-no-files-found: error
+          retention-days: 14

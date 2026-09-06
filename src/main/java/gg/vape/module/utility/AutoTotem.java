@@ -27,6 +27,7 @@ import gg.vape.rotation.RotationManager;
 import gg.vape.ui.click.frame.impl.hud.ActiveModuleStackFrame;
 import gg.vape.utils.TimerUtil;
 import gg.vape.value.BooleanValue;
+import gg.vape.value.NumberValue;
 import gg.vape.value.RandomValue;
 import gg.vape.wrapper.impl.EntityPlayerSP;
 import gg.vape.wrapper.impl.ForgeVersion;
@@ -70,6 +71,7 @@ implements InventoryActionModule {
     private final RotationManager rotationManager;
     private final BooleanValue openInventory;
     private final BooleanValue randomSlot;
+    private final NumberValue totemHotbarSlot;
 
     private double computeDelay() {
         if (!this.extraRandomization.getEffectiveValue().booleanValue()) {
@@ -301,9 +303,12 @@ implements InventoryActionModule {
             this.closeInventory();
             return;
         }
-        ItemStack itemStack = localPlayer.F$src$Lgg_vape_wrapper_impl_Container_$152y6lm().getSlot(45).getStack();
-        ItemMappingEntry itemMappingEntry = Vape.INSTANCE.getItemStackResolver().resolve(itemStack);
-        if (itemMappingEntry != null && itemMappingEntry.getResourceKey().toLowerCase().contains("totem_of_undying")) {
+        int targetHotbarContainerSlot = this.getTargetHotbarContainerSlot();
+        int windowId = localPlayer.F$src$Lgg_vape_wrapper_impl_Container_$152y6lm().getWindowId();
+        boolean offhandFilled = this.isTotemSlot(localPlayer, 45);
+        boolean hotbarFilled = targetHotbarContainerSlot < 0
+                || this.isTotemSlot(localPlayer, targetHotbarContainerSlot);
+        if (offhandFilled && hotbarFilled) {
             if (this.inventoryOpen && this.clickQueue.isEmpty()) {
                 this.closePending = true;
                 this.resetDelayTimer();
@@ -321,7 +326,17 @@ implements InventoryActionModule {
             if (inInventoryScreen && !this.inventoryOpen) {
                 this.inventoryOpen = true;
             }
-            this.queueClick(localPlayer.F$src$Lgg_vape_wrapper_impl_Container_$152y6lm().getWindowId(), totemSlot, 40, 2);
+            if (!offhandFilled) {
+                this.queueClick(windowId, totemSlot, 40, 2);
+            } else {
+                boolean targetOccupied = localPlayer.F$src$Lgg_vape_wrapper_impl_Container_$152y6lm()
+                        .getSlot(targetHotbarContainerSlot).getStack().isNotNull();
+                this.queueClick(windowId, totemSlot, 0, 0);
+                this.queueClick(windowId, targetHotbarContainerSlot, 0, 0);
+                if (targetOccupied) {
+                    this.queueClick(windowId, totemSlot, 0, 0);
+                }
+            }
             this.resetClickTimer();
         }
         if (this.inventoryOpen && this.clickQueue.isEmpty()) {
@@ -347,6 +362,8 @@ implements InventoryActionModule {
         this.closeInventory = BooleanValue.create(this, "Close inventory", true, "Closes your inventory after equipping a totem");
         this.inventoryOnly = BooleanValue.create(this, "Inventory only", false, "Only equips a totem when in your inventory");
         this.randomSlot = BooleanValue.create(this, "Random slot", true, "Chooses a random totem slot from your inventory");
+        this.totemHotbarSlot = NumberValue.create(this, "Totem hotbar slot", "#", "", 0.0, 0.0, 9.0, 1.0,
+                "Also fills this hotbar slot (1-9) with a totem (0 = off)");
         this.delay = RandomValue.createWithDescription(this, "Delay", "#", "ms", 50.0, 100.0, 120.0, 200.0, 1.0, "How long to wait before equipping a totem");
         this.extraRandomization = BooleanValue.create(this, "Extra randomization", true, "Adds human-like timing variance while equipping totems");
         this.showTotemCount = BooleanValue.create(this, "Show totem count", false, "Renders your totem count on the center of your screen");
@@ -356,7 +373,7 @@ implements InventoryActionModule {
         this.openInventory.addDependentValues(this.silentOpen, this.silentMoveDelay, this.closeInventory);
         this.silentOpen.addDependentValues(this.silentMoveDelay);
         this.silentOpen.getDisabledCondition().applyTo(this.closeInventory);
-        this.addValue(this.openInventory, this.silentOpen, this.silentMoveDelay, this.closeInventory, this.inventoryOnly, this.randomSlot, this.delay, this.extraRandomization, this.showTotemCount);
+        this.addValue(this.openInventory, this.silentOpen, this.silentMoveDelay, this.closeInventory, this.inventoryOnly, this.randomSlot, this.delay, this.extraRandomization, this.showTotemCount, this.totemHotbarSlot);
         this.rotationClaim.setPriority(this, 99);
     }
 
@@ -366,10 +383,26 @@ implements InventoryActionModule {
         this.clickDelay = Math.max(1L, (long)autoTotem.computeDelay());
     }
 
+    private int getTargetHotbarContainerSlot() {
+        int selected = this.totemHotbarSlot.getValue().intValue();
+        if (selected < 1 || selected > 9) {
+            return -1;
+        }
+        return 36 + (selected - 1);
+    }
+
+    private boolean isTotemSlot(EntityPlayerSP localPlayer, int containerSlot) {
+        ItemStack itemStack = localPlayer.F$src$Lgg_vape_wrapper_impl_Container_$152y6lm().getSlot(containerSlot).getStack();
+        ItemMappingEntry itemMappingEntry = Vape.INSTANCE.getItemStackResolver().resolve(itemStack);
+        return itemMappingEntry != null && itemMappingEntry.getResourceKey().toLowerCase().contains("totem_of_undying");
+    }
+
     private int findTotemSlot() {
         EntityPlayerSP localPlayer = Minecraft.thePlayer();
+        int excludedSlot = this.getTargetHotbarContainerSlot();
         ArrayList<Integer> totemSlots = new ArrayList<Integer>();
         for (int slot = 9; slot < 45; ++slot) {
+            if (slot == excludedSlot) continue;
             ItemMappingEntry itemMappingEntry;
             ItemStack itemStack = localPlayer.F$src$Lgg_vape_wrapper_impl_Container_$152y6lm().getSlot(slot).getStack();
             if (itemStack.isNull() || (itemMappingEntry = Vape.INSTANCE.getItemStackResolver().resolve(itemStack)) == null || !itemMappingEntry.getResourceKey().toLowerCase().contains("totem_of_undying")) continue;

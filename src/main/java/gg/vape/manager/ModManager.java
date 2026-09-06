@@ -42,6 +42,7 @@ import gg.vape.module.render.Search;
 import gg.vape.module.none.TextGuiSettings;
 import gg.vape.module.world.XRay;
 import gg.vape.module.world.AntiAFK;
+import gg.vape.module.world.AutoLava;
 import gg.vape.module.render.AntiDebuff;
 import gg.vape.module.render.Arrows;
 import gg.vape.module.render.Chams;
@@ -224,7 +225,7 @@ implements EventListener {
         this.registerModules(Stream.of(new AutoFish(), new BedBreaker(), new AutoLadder(), new Clutch(), new FakeLag()), ModManager::addMinecraft1710Constraint);
         this.registerModules(Stream.of(new BedPlates()), ModManager::addBedPlatesVersionConstraints);
         this.registerModules(Stream.of(new AntiBot()));
-        this.registerModules(Stream.of(new Triggerbot(), new HitSwap(), new AutoMace(), new AutoAnchor(), new WindCharge(), new CrystalAura(), new AutoTotem(), new ShieldBreaker(), new PearlCatch(), new HeadWeb(), new AutoDrain()), ModManager::addMinecraft1214Constraint);
+        this.registerModules(Stream.of(new Triggerbot(), new HitSwap(), new AutoMace(), new AutoAnchor(), new WindCharge(), new CrystalAura(), new AutoTotem(), new ShieldBreaker(), new PearlCatch(), new HeadWeb(), new AutoDrain(), new AutoLava()), ModManager::addMinecraft1214Constraint);
         this.registerModules(Stream.of(new NoFall(), new NoSlowdown(), new Speed(), new NoItemRelease(), new Timer()), ModManager::addModernMinecraftConstraint);
         this.registerTextGuiSettings();
         this.registerHudModules();
