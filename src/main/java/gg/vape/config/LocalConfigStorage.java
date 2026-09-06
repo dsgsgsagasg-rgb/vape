@@ -41,10 +41,46 @@ public class LocalConfigStorage {
         }
         try {
             Files.createDirectories(CONFIG_DIRECTORY);
-            saveJson(CONFIG_DIRECTORY.resolve(GLOBALS_FILE_NAME), globalsPayload(config));
-            Set<String> activeProfileUuids = saveProfileFiles(config.getAsJsonObject("profiles"));
+            deleteIfExists(CONFIG_DIRECTORY.resolve(GLOBALS_FILE_NAME));
+            Set<String> activeProfileUuids = new HashSet<String>();
+            Set<String> usedFileNames = new HashSet<String>();
+            JsonObject profiles = config.has("profiles") ? config.getAsJsonObject("profiles") : null;
+            if (profiles != null) {
+                for (Map.Entry<String, JsonElement> entry : profiles.entrySet()) {
+                    JsonElement value = entry.getValue();
+                    if (value == null || !value.isJsonObject()) {
+                        continue;
+                    }
+                    JsonObject profile = value.getAsJsonObject();
+                    String uuid = ConfigJsonUtils.getString(profile, "uuid");
+                    if (uuid == null) {
+                        uuid = entry.getKey();
+                    }
+                    if (uuid != null) {
+                        activeProfileUuids.add(uuid);
+                    }
+                    JsonObject snapshot = config.deepCopy();
+                    snapshot.addProperty("uuid", uuid);
+                    snapshot.addProperty("name", ConfigJsonUtils.getString(profile, "name"));
+                    String baseName = profileFileName(ConfigJsonUtils.getString(profile, "name"), uuid);
+                    String fileName = baseName;
+                    int suffix = 2;
+                    while (!usedFileNames.add(fileName)) {
+                        String stripped = baseName.substring(0, baseName.length() - PROFILE_FILE_EXTENSION.length());
+                        fileName = stripped + "-" + suffix + PROFILE_FILE_EXTENSION;
+                        ++suffix;
+                    }
+                    try {
+                        saveJson(CONFIG_DIRECTORY.resolve(fileName), snapshot);
+                    }
+                    catch (IOException exception) {
+                        Vape.logThrowable(exception);
+                    }
+                }
+            }
             pruneProfileFiles(activeProfileUuids);
-            Vape.debugLog("Saved local config to " + CONFIG_DIRECTORY.toAbsolutePath());
+            Vape.debugLog("Saved local config to " + CONFIG_DIRECTORY.toAbsolutePath() + " (" + activeProfileUuids.size()
+                    + " profile file(s))");
         }
         catch (Exception exception) {
             Vape.logThrowable(exception);
@@ -55,88 +91,42 @@ public class LocalConfigStorage {
         if (!Files.exists(CONFIG_DIRECTORY)) {
             return null;
         }
-        JsonObject config = new JsonObject();
-        JsonObject globals = readJson(CONFIG_DIRECTORY.resolve(GLOBALS_FILE_NAME));
-        if (globals != null) {
-            if (globals.has("friends")) {
-                config.add("friends", globals.get("friends"));
-            }
-            if (globals.has("otherdata")) {
-                config.add("otherdata", globals.get("otherdata"));
-            }
-        }
-        JsonObject profiles = new JsonObject();
-        boolean hasAnyProfile = false;
+        Path newestFile = null;
+        long newestTimestamp = -1L;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(CONFIG_DIRECTORY, "*" + PROFILE_FILE_EXTENSION)) {
             for (Path file : stream) {
-                JsonObject profile = readJson(file);
-                if (profile == null) {
-                    continue;
+                try {
+                    long timestamp = Files.getLastModifiedTime(file).toMillis();
+                    if (timestamp > newestTimestamp) {
+                        newestTimestamp = timestamp;
+                        newestFile = file;
+                    }
                 }
-                String uuid = ConfigJsonUtils.getString(profile, "uuid");
-                if (uuid == null) {
-                    continue;
+                catch (Exception ignored) {
                 }
-                profiles.add(uuid, profile);
-                hasAnyProfile = true;
             }
         }
         catch (Exception exception) {
             Vape.logThrowable(exception);
         }
-        if (globals == null && !hasAnyProfile) {
+        if (newestFile == null) {
             return null;
         }
-        config.add("profiles", profiles);
-        return config;
-    }
-
-    private static JsonObject globalsPayload(JsonObject config) {
-        JsonObject globals = new JsonObject();
-        if (config.has("friends")) {
-            globals.add("friends", config.get("friends"));
+        JsonObject config = readJson(newestFile);
+        if (config == null) {
+            return null;
         }
-        if (config.has("otherdata")) {
-            globals.add("otherdata", config.get("otherdata"));
+        if (config.has("profiles")) {
+            config.remove("uuid");
+            config.remove("name");
+            return config;
         }
-        return globals;
-    }
-
-    private static Set<String> saveProfileFiles(JsonObject profiles) {
-        Set<String> activeProfileUuids = new HashSet<String>();
-        Set<String> usedFileNames = new HashSet<String>();
-        if (profiles == null) {
-            return activeProfileUuids;
-        }
-        for (Map.Entry<String, JsonElement> entry : profiles.entrySet()) {
-            JsonElement value = entry.getValue();
-            if (value == null || !value.isJsonObject()) {
-                continue;
-            }
-            JsonObject profile = value.getAsJsonObject();
-            String uuid = ConfigJsonUtils.getString(profile, "uuid");
-            if (uuid == null) {
-                uuid = entry.getKey();
-            }
-            if (uuid != null) {
-                activeProfileUuids.add(uuid);
-            }
-            String baseName = profileFileName(ConfigJsonUtils.getString(profile, "name"), uuid);
-            String fileName = baseName;
-            int suffix = 2;
-            while (!usedFileNames.add(fileName)) {
-                String stripped = baseName.substring(0, baseName.length() - PROFILE_FILE_EXTENSION.length());
-                fileName = stripped + "-" + suffix + PROFILE_FILE_EXTENSION;
-                ++suffix;
-            }
-            try {
-                saveJson(CONFIG_DIRECTORY.resolve(fileName), profile);
-            }
-            catch (IOException exception) {
-                Vape.logThrowable(exception);
-            }
-        }
-        return activeProfileUuids;
+        JsonObject wrapped = new JsonObject();
+        JsonObject profiles = new JsonObject();
+        String uuid = ConfigJsonUtils.getString(config, "uuid");
+        profiles.add(uuid == null ? "single" : uuid, config);
+        wrapped.add("profiles", profiles);
+        return wrapped;
     }
 
     private static void pruneProfileFiles(Set<String> activeProfileUuids) {
@@ -188,6 +178,14 @@ public class LocalConfigStorage {
         }
         catch (Exception atomicMoveFailed) {
             Files.move(tempFile, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static void deleteIfExists(Path target) {
+        try {
+            Files.deleteIfExists(target);
+        }
+        catch (Exception ignored) {
         }
     }
 
