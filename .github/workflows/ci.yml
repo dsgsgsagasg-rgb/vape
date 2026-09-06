@@ -87,7 +87,7 @@ jobs:
 
       - name: 构建并验证 Java 载荷
         shell: bash
-        run: ./gradlew clean build verifyInjectionPayload --stacktrace
+        run: bash gradlew clean build verifyInjectionPayload --stacktrace
 
       - name: 上传 Java 注入载荷 (Linux)
         uses: actions/upload-artifact@v4
