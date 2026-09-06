@@ -44,7 +44,6 @@ public class SyncThread {
             }
 
             this.syncOnlineSettings();
-            this.prepareActiveProfileForSave();
             this.saveLocalConfig();
 
             JsonObject settingsPayload = this.buildSettingsPayload(true);
@@ -79,6 +78,7 @@ public class SyncThread {
 
     public void saveLocalConfig() {
         try {
+            this.prepareActiveProfileForSave();
             LocalConfigStorage.save(this.buildSettingsPayload(false));
         }
         catch (Exception exception) {
