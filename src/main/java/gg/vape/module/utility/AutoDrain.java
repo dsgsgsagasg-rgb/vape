@@ -53,9 +53,12 @@ extends Mod {
     private final NumberValue delay = NumberValue.create(this, "Delay", "#", "ticks", 0.0, 3.0, 40.0, 1.0,
             "Delay between draining water sources");
 
+    private final BooleanValue debugNotifications = BooleanValue.create(this, "Debug notifications", true,
+            "Shows every AutoDrain tracking and drain decision as a notification");
     private final RotationControlClaim rotationClaim = SharedModuleControlClaims.rotation;
     private final TimerUtil delayTimer = new TimerUtil();
     private final TimerUtil notifyTimer = new TimerUtil();
+    private final TimerUtil debugTimer = new TimerUtil();
     private final Set<BlockData> handledWater = new HashSet<>();
     private final Set<BlockData> playerPlacedWater = new HashSet<>();
 
@@ -71,7 +74,7 @@ extends Mod {
     public AutoDrain() {
         super("AutoDrain", (int)MODULE_ID, Category.UTILITY,
                 "Automatically picks up water placed by others using an empty bucket");
-        this.addValue(this.aimSpeed, this.silentAim, this.reach, this.delay);
+        this.addValue(this.aimSpeed, this.silentAim, this.reach, this.delay, this.debugNotifications);
         this.rotationClaim.setPriority(this, 7);
     }
 
@@ -163,6 +166,11 @@ extends Mod {
             this.cancel();
             return;
         }
+        if (this.playerPlacedWater.contains(this.target)) {
+            this.notifyDebug("Aborted drain: cell is your own water");
+            this.cancel();
+            return;
+        }
         if (player.i((double)this.target.D() + 0.5, (double)this.target.B() + 0.5, (double)this.target.G() + 0.5)
                 > this.reach.getValue().doubleValue()) {
             this.cancel();
@@ -196,6 +204,7 @@ extends Mod {
         Minecraft.O(fluidHit);
         this.rightClick();
         this.handledWater.add(this.target);
+        this.notifyDebug("Drained enemy water at [" + this.target.D() + ", " + this.target.B() + ", " + this.target.G() + "]");
         this.ticks = 0;
         this.state = STATE_RESTORE;
     }
@@ -221,12 +230,15 @@ extends Mod {
 
     @EventHandler(priority=EventPriority.LOWEST)
     public void onRightClickMouse(EventRightClickMouse eventRightClickMouse) {
-        if (this.clickPending && this.clickOverrideRayTrace != null && this.clickOverrideRayTrace.isNotNull()) {
+        boolean moduleClick = this.clickPending && this.clickOverrideRayTrace != null && this.clickOverrideRayTrace.isNotNull();
+        if (moduleClick) {
             Minecraft.O(this.clickOverrideRayTrace);
         }
         this.clickPending = false;
         this.clickOverrideRayTrace = null;
-        this.trackBucketUse();
+        if (!moduleClick) {
+            this.trackBucketUse();
+        }
     }
 
     private void trackBucketUse() {
@@ -268,13 +280,22 @@ extends Mod {
         }
         if (isEmptyBucket && this.isWaterSource(world, BlockData.E(hitPos))) {
             this.playerPlacedWater.remove(BlockData.E(hitPos));
+            this.notifyDebug("Your water at [" + hitPos.getX() + ", " + hitPos.getY() + ", " + hitPos.getZ() + "] freed (you picked it up)");
             return;
         }
         if (isWaterBucket) {
             BlockPos placedPos = hitPos.offset(sideHit);
             if (placedPos != null && placedPos.isNotNull()) {
                 this.playerPlacedWater.add(BlockData.E(placedPos));
+                this.notifyDebug("Your water at [" + placedPos.getX() + ", " + placedPos.getY() + ", " + placedPos.getZ() + "] protected");
             }
+        }
+    }
+
+    private void notifyDebug(String message) {
+        if (this.debugNotifications.getEffectiveValue().booleanValue() && this.debugTimer.hasTimeElapsed(1200L)) {
+            this.debugTimer.reset();
+            Vape.INSTANCE.getNotificationManager().show("AutoDrain", message, NotificationType.INFO, 2500L);
         }
     }
 
@@ -348,6 +369,7 @@ extends Mod {
         double reachSquared = effectiveReach * effectiveReach;
         BlockData best = null;
         double bestDistance = Double.MAX_VALUE;
+        int skippedOwnWater = 0;
         for (int x = baseX - radius; x <= baseX + radius; ++x) {
             for (int z = baseZ - radius; z <= baseZ + radius; ++z) {
                 double deltaX = (double)x + 0.5 - playerX;
@@ -361,7 +383,11 @@ extends Mod {
                         continue;
                     }
                     BlockData blockData = new BlockData(x, y, z);
-                    if (this.playerPlacedWater.contains(blockData) || this.handledWater.contains(blockData)) {
+                    if (this.playerPlacedWater.contains(blockData)) {
+                        ++skippedOwnWater;
+                        continue;
+                    }
+                    if (this.handledWater.contains(blockData)) {
                         continue;
                     }
                     if (!this.isWaterSource(world, blockData) || !this.isWaterReachable(player, world, x, y, z, effectiveReach)) {
@@ -375,6 +401,9 @@ extends Mod {
                     bestDistance = distance;
                 }
             }
+        }
+        if (best == null && skippedOwnWater > 0) {
+            this.notifyDebug("Ignored " + skippedOwnWater + " own water cell(s); no enemy water to drain");
         }
         return best;
     }
