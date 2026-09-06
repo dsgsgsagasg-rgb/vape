@@ -2,7 +2,9 @@ package gg.vape.module.utility;
 
 import gg.vape.Vape;
 import gg.vape.event.EventHandler;
+import gg.vape.event.EventPriority;
 import gg.vape.event.impl.EventPlayerUseItem;
+import gg.vape.event.impl.EventRightClickMouse;
 import gg.vape.event.impl.EventPreTick;
 import gg.vape.event.impl.EventWorldChange;
 import gg.vape.module.Category;
@@ -28,6 +30,7 @@ import gg.vape.wrapper.impl.InventoryPlayer;
 import gg.vape.wrapper.impl.ItemStack;
 import gg.vape.wrapper.impl.KeyBinding;
 import gg.vape.wrapper.impl.Minecraft;
+import gg.vape.wrapper.impl.RayTraceResult;
 import gg.vape.wrapper.impl.Vec3;
 import gg.vape.wrapper.impl.World;
 import java.util.HashSet;
@@ -61,6 +64,12 @@ extends Mod {
     private int bucketSlot = -1;
     private BlockData target;
     private AdaptiveRotationController rotationController;
+    private RayTraceResult clickOverrideRayTrace;
+    private boolean clickPending;
+    private boolean rotationRestorePending;
+    private float savedYaw;
+    private float savedPitch;
+    private float savedYawOffset;
 
     public AutoDrain() {
         super("AutoDrain", (int)MODULE_ID, Category.UTILITY,
@@ -188,27 +197,42 @@ extends Mod {
             }
             return;
         }
-        BlockCoordinate coordinate = new BlockCoordinate(this.target.D(), this.target.B(), this.target.G());
-        if (BlockPlacementUtility.isLookingAtPlacementTarget(coordinate, BlockPlacementUtility.getEmptyBucketItem())) {
-            InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
-            if (this.bucketSlot >= 0) {
-                inventory.g(this.bucketSlot);
+        if (this.rotationController == null || !this.rotationController.isComplete()) {
+            if (++this.ticks > 60) {
+                this.cancel();
             }
-            this.rightClick();
-            this.handledWater.add(this.target);
-            this.ticks = 0;
-            this.state = STATE_RESTORE;
             return;
         }
-        if (++this.ticks > 60) {
-            this.cancel();
+        RayTraceResult fluidHit = RotationManager.INSTANCE.rayTraceUsingManagedRotation(true);
+        if (fluidHit == null || fluidHit.isNull() || !this.isFullWaterHit(fluidHit)) {
+            if (++this.ticks > 60) {
+                this.cancel();
+            }
+            return;
         }
+        InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
+        if (this.bucketSlot >= 0) {
+            inventory.g(this.bucketSlot);
+        }
+        this.spoofRotation(player);
+        this.clickOverrideRayTrace = fluidHit;
+        this.clickPending = true;
+        Minecraft.O(fluidHit);
+        this.rightClick();
+        this.handledWater.add(this.target);
+        this.ticks = 0;
+        this.state = STATE_RESTORE;
     }
 
     private void tickRestore(EntityPlayerSP player) {
         if (++this.ticks < 2) {
             return;
         }
+        if (this.rotationRestorePending) {
+            this.restoreRotation(player);
+        }
+        this.clickPending = false;
+        this.clickOverrideRayTrace = null;
         InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
         if (this.originalSlot >= 0) {
             inventory.g(this.originalSlot);
@@ -220,6 +244,46 @@ extends Mod {
         this.ticks = 0;
         this.delayTimer.reset();
         this.state = STATE_SCAN;
+    }
+
+    @EventHandler(priority=EventPriority.LOWEST)
+    public void onRightClickMouse(EventRightClickMouse eventRightClickMouse) {
+        if (this.clickPending && this.clickOverrideRayTrace != null && this.clickOverrideRayTrace.isNotNull()) {
+            Minecraft.O(this.clickOverrideRayTrace);
+        }
+        this.clickPending = false;
+        this.clickOverrideRayTrace = null;
+    }
+
+    private boolean isFullWaterHit(RayTraceResult rayTraceResult) {
+        if (this.target == null || rayTraceResult == null || rayTraceResult.isNull() || !rayTraceResult.isBlockHit()) {
+            return false;
+        }
+        BlockPos hitPos = rayTraceResult.getBlockPos();
+        return hitPos != null && hitPos.isNotNull()
+                && hitPos.getX() == this.target.D() && hitPos.getY() == this.target.B() && hitPos.getZ() == this.target.G();
+    }
+
+    private void spoofRotation(EntityPlayerSP player) {
+        this.savedYaw = player.J();
+        this.savedPitch = player.V();
+        this.savedYawOffset = player.s();
+        this.rotationRestorePending = true;
+        float managedYaw = RotationManager.INSTANCE.getManagedYaw();
+        float managedPitch = RotationManager.INSTANCE.getManagedPitch();
+        player.H(managedYaw);
+        player.z(managedYaw);
+        player.C(managedPitch);
+    }
+
+    private void restoreRotation(EntityPlayerSP player) {
+        this.rotationRestorePending = false;
+        if (player == null || player.isNull()) {
+            return;
+        }
+        player.H(this.savedYaw);
+        player.z(this.savedYawOffset);
+        player.C(this.savedPitch);
     }
 
     private boolean updateAim() {
@@ -365,9 +429,14 @@ extends Mod {
 
     private void cancel() {
         EntityPlayerSP player = Minecraft.thePlayer();
-        if (player.isNotNull() && Minecraft.currentScreen().isNull() && this.originalSlot >= 0) {
-            player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.originalSlot);
+        if (player.isNotNull()) {
+            this.restoreRotation(player);
+            if (Minecraft.currentScreen().isNull() && this.originalSlot >= 0) {
+                player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6().g(this.originalSlot);
+            }
         }
+        this.clickPending = false;
+        this.clickOverrideRayTrace = null;
         this.releaseRotation();
         this.target = null;
         this.originalSlot = -1;
