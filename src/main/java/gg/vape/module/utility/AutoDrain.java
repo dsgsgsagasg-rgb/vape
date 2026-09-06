@@ -239,6 +239,9 @@ extends Mod {
             return;
         }
         InventoryPlayer inventory = player.V$src$Lgg_vape_wrapper_impl_InventoryPlayer_$erqak6();
+        if (inventory.isNull()) {
+            return;
+        }
         ItemStack heldStack = inventory.c(inventory.v());
         if (heldStack == null || heldStack.isNull()) {
             return;
@@ -251,21 +254,23 @@ extends Mod {
         ItemMappingEntry waterBucket = BlockPlacementUtility.getWaterBucketItem();
         boolean isEmptyBucket = emptyBucket != null && emptyBucket.equals(heldItem);
         boolean isWaterBucket = waterBucket != null && waterBucket.equals(heldItem);
-        RayTraceResult mouseOver = Minecraft.p$src$Lgg_vape_wrapper_impl_RayTraceResult_$5rw6n0();
-        if (mouseOver == null || mouseOver.isNull() || !mouseOver.isBlockHit()
-                || mouseOver.getBlockPos() == null || mouseOver.getBlockPos().isNull()) {
+        if (!isEmptyBucket && !isWaterBucket) {
             return;
         }
-        BlockPos hitPos = mouseOver.getBlockPos();
+        RayTraceResult rayTraceResult = RotationManager.INSTANCE.getNormalReachRayTrace();
+        if (rayTraceResult == null || rayTraceResult.isNull() || !rayTraceResult.isBlockHit()) {
+            return;
+        }
+        BlockPos hitPos = rayTraceResult.getBlockPos();
+        EnumFacing sideHit = rayTraceResult.getSideHit();
+        if (hitPos == null || hitPos.isNull() || sideHit == null || sideHit.isNull()) {
+            return;
+        }
         if (isEmptyBucket && this.isWaterSource(world, BlockData.E(hitPos))) {
             this.playerPlacedWater.remove(BlockData.E(hitPos));
             return;
         }
         if (isWaterBucket) {
-            EnumFacing sideHit = mouseOver.getSideHit();
-            if (sideHit == null || sideHit.isNull()) {
-                return;
-            }
             BlockPos placedPos = hitPos.offset(sideHit);
             if (placedPos != null && placedPos.isNotNull()) {
                 this.playerPlacedWater.add(BlockData.E(placedPos));
