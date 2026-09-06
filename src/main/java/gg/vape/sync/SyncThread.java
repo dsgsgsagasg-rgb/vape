@@ -9,6 +9,7 @@ import gg.vape.api.ApiHttpStatusException;
 import gg.vape.api.ApiResponse;
 import gg.vape.api.ApiServices;
 import gg.vape.api.UserDataResponse;
+import gg.vape.config.LocalConfigStorage;
 import gg.vape.config.Profile;
 import gg.vape.config.SettingsDataType;
 import gg.vape.manager.client.OnlineConnectionManager;
@@ -44,6 +45,7 @@ public class SyncThread {
 
             this.syncOnlineSettings();
             this.prepareActiveProfileForSave();
+            this.saveLocalConfig();
 
             JsonObject settingsPayload = this.buildSettingsPayload(true);
             JsonObject profilesPayload = this.vape.getProfilesManager().toJson(true);
@@ -72,6 +74,15 @@ public class SyncThread {
         }
         finally {
             this.pendingSave.set(false);
+        }
+    }
+
+    public void saveLocalConfig() {
+        try {
+            LocalConfigStorage.save(this.buildSettingsPayload(false));
+        }
+        catch (Exception exception) {
+            Vape.logThrowable(exception);
         }
     }
 
@@ -205,6 +216,11 @@ public class SyncThread {
 
     public void loadConfig() {
         try {
+            JsonObject localConfig = LocalConfigStorage.load();
+            if (localConfig != null) {
+                this.loadLocalConfig(localConfig);
+                return;
+            }
             if (this.vape.getAccountInfo().hasProfilesEnabled()) {
                 this.loadRemoteConfig();
             } else {
@@ -212,6 +228,13 @@ public class SyncThread {
             }
         }
         catch (Throwable ignored) {
+        }
+    }
+
+    private void loadLocalConfig(JsonObject config) {
+        this.vape.loadConfigData(config, false);
+        for (Profile profile : this.vape.getProfilesManager().getProfiles()) {
+            profile.setDirty(true);
         }
     }
 

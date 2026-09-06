@@ -524,6 +524,7 @@ public class Vape {
     public void saveAndStop() {
         Profile activeProfile;
         this.syncThread.markDirty();
+        this.syncThread.saveLocalConfig();
         if (this.profilesManager != null && (activeProfile = this.profilesManager.getActiveProfileOrNull()) != null) {
             activeProfile.setDirty(true);
         }
