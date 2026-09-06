@@ -12,6 +12,7 @@ import gg.vape.module.utility.clutch.ClutchPlacementPathUtils;
 import gg.vape.module.utility.clutch.PlacementTarget;
 import gg.vape.notification.NotificationType;
 import gg.vape.rotation.AdaptiveRotationController;
+import gg.vape.rotation.RotationAngles;
 import gg.vape.rotation.RotationControlClaim;
 import gg.vape.rotation.RotationManager;
 import gg.vape.utils.BlockUtil;
@@ -40,6 +41,10 @@ extends UtilityMod {
     private static final int STATE_ATTACK = 1;
     private static final int STATE_WAIT = 2;
     private static final int STATE_PLACE = 3;
+    private static final int STATE_PUNCH = 4;
+    private static final int PUNCH_PHASE_FLICKING = 0;
+    private static final int PUNCH_PHASE_ATTACKING = 1;
+    private static final int PUNCH_PHASE_DONE = 2;
 
     private final BooleanValue silentAim = BooleanValue.create(this, "Silent aim", true,
             "Aims without moving the camera when placing the web");
@@ -50,7 +55,7 @@ extends UtilityMod {
     private final NumberValue webDelay = NumberValue.create(this, "Web delay", "#", "ticks", 0.0, 0.0, 30.0, 1.0,
             "How long to wait after the sprint hit before placing the web");
     private final BooleanValue centerPunch = BooleanValue.create(this, "Center punch", false,
-            "Extra hit after the sprint hit to nudge the target into the block before placing the web");
+            "Extra hit flicked off-angle (like HitFlick) to redirect knockback toward the center of the web block");
 
     private final RotationControlClaim rotationClaim = SharedModuleControlClaims.rotation;
 
@@ -60,7 +65,10 @@ extends UtilityMod {
     private int cobwebSlot = -1;
     private boolean releasePending;
     private EntityOtherPlayerMP target;
-    private boolean punchFired;
+    private int punchPhase;
+    private boolean punchAttacked;
+    private float punchFlickYaw;
+    private AdaptiveRotationController punchRotationController;
     private int placeX;
     private int placeY;
     private int placeZ;
@@ -102,7 +110,10 @@ extends UtilityMod {
         }
         this.ticks = 0;
         this.releasePending = false;
-        this.punchFired = false;
+        this.punchPhase = PUNCH_PHASE_FLICKING;
+        this.punchAttacked = false;
+        this.punchFlickYaw = 0.0f;
+        this.punchRotationController = null;
         this.placeStarted = false;
         this.webClicked = false;
         this.webRotationController = null;
@@ -134,6 +145,10 @@ extends UtilityMod {
             }
             case STATE_WAIT: {
                 this.tickWait();
+                break;
+            }
+            case STATE_PUNCH: {
+                this.tickPunch(player);
                 break;
             }
             case STATE_PLACE: {
@@ -171,16 +186,112 @@ extends UtilityMod {
             return;
         }
         this.ticks = 0;
-        if (this.centerPunch.getEffectiveValue().booleanValue() && !this.punchFired) {
-            this.punchFired = true;
-            this.releasePending = AttackKeyController.requestSyntheticAttack(this);
+        if (this.centerPunch.getEffectiveValue().booleanValue()) {
+            this.startPunch();
             return;
         }
-        if (this.punchFired && this.ticks < 4) {
-            return;
-        }
-        this.punchFired = false;
         this.state = STATE_PLACE;
+    }
+
+    private void startPunch() {
+        EntityPlayerSP player = Minecraft.thePlayer();
+        if (player.isNull() || this.target == null || this.target.isNull()) {
+            this.finish();
+            return;
+        }
+        this.punchFlickYaw = this.computePunchFlickYaw();
+        this.punchPhase = PUNCH_PHASE_FLICKING;
+        this.punchAttacked = false;
+        this.punchRotationController = null;
+        this.ticks = 0;
+        this.state = STATE_PUNCH;
+    }
+
+    private float computePunchFlickYaw() {
+        EntityPlayerSP player = Minecraft.thePlayer();
+        double enemyX = this.target.z();
+        double enemyZ = this.target.h();
+        float yawToEnemy = (float)(Math.atan2(-(enemyX - player.z()), enemyZ - player.h()) * 57.29577951308232);
+        double centerX = (double)this.placeX + 0.5;
+        double centerZ = (double)this.placeZ + 0.5;
+        float yawToCenter = (float)(Math.atan2(-(centerX - enemyX), centerZ - enemyZ) * 57.29577951308232);
+        return MathUtil.wrapAngleTo180(yawToCenter - yawToEnemy);
+    }
+
+    private void tickPunch(EntityPlayerSP player) {
+        if (this.target == null || this.target.isNull()) {
+            this.finish();
+            return;
+        }
+        if (!this.rotationClaim.isOwnedBy(this) && !this.rotationClaim.acquire(this, true)) {
+            this.finish();
+            return;
+        }
+        if (this.punchRotationController == null) {
+            AdaptiveRotationController controller = new AdaptiveRotationController(
+                    Vec3.create(this.target.z(), this.target.N() + 1.0, this.target.h()));
+            controller.setNormalizeTargetYaw(false);
+            controller.setRetainAfterCompletion(true);
+            controller.setClampStepToRemaining(true);
+            controller.setTolerance(0.0f);
+            controller.setScaleAxesProportionally(false);
+            controller.setLinearAcceleration(false);
+            controller.setRelativeMode(false);
+            controller.setSpeed(((Double)this.aimSpeed.getValue()).floatValue());
+            controller.setYawOffset(this.punchFlickYaw);
+            this.punchRotationController = controller;
+        }
+        Vec3 punchAimPoint = Vec3.create(this.target.z(), this.target.N() + 1.0, this.target.h());
+        this.punchRotationController.setTarget(punchAimPoint);
+        this.punchRotationController.setYawOffset(this.punchFlickYaw);
+        this.punchRotationController.setSpeed(((Double)this.aimSpeed.getValue()).floatValue());
+        if (!this.punchRotationController.equals(RotationManager.INSTANCE.getActiveController())) {
+            RotationManager.INSTANCE.setController(this.punchRotationController);
+        }
+        switch (this.punchPhase) {
+            case PUNCH_PHASE_FLICKING: {
+                if (this.hasReachedPunchRotation() || ++this.ticks >= 12) {
+                    this.ticks = 0;
+                    this.punchPhase = PUNCH_PHASE_ATTACKING;
+                }
+                break;
+            }
+            case PUNCH_PHASE_ATTACKING: {
+                if (!this.punchAttacked) {
+                    this.punchAttacked = true;
+                    this.releasePending = AttackKeyController.requestSyntheticAttack(this);
+                }
+                if (++this.ticks >= 2) {
+                    this.punchPhase = PUNCH_PHASE_DONE;
+                }
+                break;
+            }
+            case PUNCH_PHASE_DONE: {
+                if (this.punchRotationController != null) {
+                    RotationManager.INSTANCE.releaseController(this.punchRotationController);
+                }
+                this.punchRotationController = null;
+                this.punchAttacked = false;
+                this.ticks = 0;
+                this.state = STATE_PLACE;
+                break;
+            }
+        }
+    }
+
+    private boolean hasReachedPunchRotation() {
+        if (this.punchRotationController == null) {
+            return false;
+        }
+        RotationAngles rotationAngles = this.punchRotationController.calculateRotation(
+                Vec3.create(this.target.z(), this.target.N() + 1.0, this.target.h()));
+        if (rotationAngles == null) {
+            return false;
+        }
+        float offsetYaw = rotationAngles.getYaw() + this.punchFlickYaw;
+        float yawError = Math.abs(MathUtil.wrapAngleTo180(RotationManager.INSTANCE.getManagedYaw() - offsetYaw));
+        float pitchError = Math.abs(MathUtil.wrapAngleTo180(RotationManager.INSTANCE.getManagedPitch() - rotationAngles.getPitch()));
+        return Math.max(yawError, pitchError) <= 6.0f;
     }
 
     private void tickPlace(EntityPlayerSP player) {
@@ -398,8 +509,12 @@ extends UtilityMod {
         if (this.webRotationController != null) {
             RotationManager.INSTANCE.releaseController(this.webRotationController);
         }
+        if (this.punchRotationController != null) {
+            RotationManager.INSTANCE.releaseController(this.punchRotationController);
+        }
         this.rotationClaim.release(this);
         this.webRotationController = null;
+        this.punchRotationController = null;
         this.target = null;
         this.webSupportBlock = null;
         this.webFacing = null;
@@ -425,8 +540,12 @@ extends UtilityMod {
         if (this.webRotationController != null) {
             RotationManager.INSTANCE.releaseController(this.webRotationController);
         }
+        if (this.punchRotationController != null) {
+            RotationManager.INSTANCE.releaseController(this.punchRotationController);
+        }
         this.rotationClaim.release(this);
         this.webRotationController = null;
+        this.punchRotationController = null;
         this.target = null;
         this.webSupportBlock = null;
         this.webFacing = null;
