@@ -28,6 +28,8 @@ public class SyncThread {
     private SyncStoreRequestWorker storeRequestWorker;
     private final SyncDebounceWorker debounceWorker;
     private final AtomicBoolean pendingSave = new AtomicBoolean();
+    private final AtomicBoolean localSaveInProgress = new AtomicBoolean();
+    private long lastLocalSaveTime;
     private final Vape vape;
     private long lastSaveTime;
     private boolean onlineSettingsApplied;
@@ -78,16 +80,24 @@ public class SyncThread {
     }
 
     public void saveLocalConfig() {
+        if (!Vape.INSTANCE.isInitializationComplete() || !this.localSaveInProgress.compareAndSet(false, true)) {
+            return;
+        }
         try {
-            if (this.vape.getProfilesManager() == null || this.vape.getFriendManager() == null
-                    || this.vape.getSettingsManager() == null) {
+            long now = System.currentTimeMillis();
+            if (now - this.lastLocalSaveTime < 400L || this.vape.getProfilesManager() == null
+                    || this.vape.getFriendManager() == null || this.vape.getSettingsManager() == null) {
                 return;
             }
             this.prepareActiveProfileForSave();
             LocalConfigStorage.save(this.buildSettingsPayload(false));
+            this.lastLocalSaveTime = now;
         }
         catch (Exception exception) {
             Vape.logThrowable(exception);
+        }
+        finally {
+            this.localSaveInProgress.set(false);
         }
     }
 

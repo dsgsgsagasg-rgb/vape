@@ -104,6 +104,7 @@ public class Vape {
     public static boolean mappingsLoaded;
     public boolean enabled;
     public static boolean renderReady;
+    private boolean initializationComplete;
     public static final boolean DEBUG = false; // always false; likely dead compile-time debug toggle
     public static final boolean DEV = false; // always false; likely dead compile-time toggle
     public static final String VERSION;
@@ -437,6 +438,11 @@ public class Vape {
         catch (Exception exception) {
             Vape.logThrowable(exception);
         }
+        this.initializationComplete = true;
+    }
+
+    public boolean isInitializationComplete() {
+        return this.initializationComplete;
     }
 
     public ItemStackSemanticResolver getItemStackResolver() {
@@ -524,6 +530,7 @@ public class Vape {
     public void saveAndStop() {
         Profile activeProfile;
         this.syncThread.markDirty();
+        this.syncThread.saveLocalConfig();
         if (this.profilesManager != null && (activeProfile = this.profilesManager.getActiveProfileOrNull()) != null) {
             activeProfile.setDirty(true);
         }

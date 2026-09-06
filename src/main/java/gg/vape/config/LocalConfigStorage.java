@@ -140,6 +140,9 @@ public class LocalConfigStorage {
     }
 
     private static void pruneProfileFiles(Set<String> activeProfileUuids) {
+        if (activeProfileUuids == null || activeProfileUuids.isEmpty()) {
+            return;
+        }
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(CONFIG_DIRECTORY, "*" + PROFILE_FILE_EXTENSION)) {
             for (Path file : stream) {
                 JsonObject loaded = readJson(file);
